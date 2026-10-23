@@ -24,14 +24,13 @@ import re
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.models import LlmResponse
+from google.adk.models.llm_response import LlmResponse
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from .prompts import ABSTAIN_MESSAGE
 from .rendering import render_answer
-
 
 _TOOL_NAME = "retrieve_rag_documentation"
 _CITATION_PATTERN = re.compile(r"\[(\d+)\]")
@@ -42,10 +41,11 @@ _STATE_CITATIONS = "temp:citations"
 
 def capture_retrieval_after_tool(
     tool: BaseTool,
-    args: dict[str, Any],
+    args: dict[str, Any],  # noqa: ARG001 - fixed ADK callback signature
     tool_context: ToolContext,
-    tool_response: dict,
-) -> dict | None:
+    tool_response: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Stash the retrieved chunks on session state; force an abstain when retrieval is empty."""
     if tool.name != _TOOL_NAME:
         return None
 
@@ -67,7 +67,7 @@ def capture_retrieval_after_tool(
     return None
 
 
-def _answer_supported_by_chunks(answer: str, chunks: list[dict]) -> bool:
+def _answer_supported_by_chunks(answer: str, chunks: list[dict[str, Any]]) -> bool:
     if not chunks:
         return False
     cited_indices = {int(m) for m in _CITATION_PATTERN.findall(answer)}
@@ -75,7 +75,7 @@ def _answer_supported_by_chunks(answer: str, chunks: list[dict]) -> bool:
     if cited_indices and cited_indices.issubset(valid_indices):
         return True
 
-    answer_tokens = {t for t in re.findall(r"[A-Za-z0-9]{4,}", answer.lower())}
+    answer_tokens = set(re.findall(r"[A-Za-z0-9]{4,}", answer.lower()))
     if len(answer_tokens) < 3:
         return False
     chunk_tokens: set[str] = set()
@@ -85,23 +85,25 @@ def _answer_supported_by_chunks(answer: str, chunks: list[dict]) -> bool:
     return len(overlap) / max(len(answer_tokens), 1) >= 0.4
 
 
-def validate_answer_after_model(
-    callback_context: CallbackContext, llm_response: LlmResponse
-) -> LlmResponse | None:
+def final_text_of(llm_response: LlmResponse) -> str | None:
+    """The complete text of a final model turn, or ``None`` for partials, tool calls and empties."""
     if getattr(llm_response, "partial", False):
         return None
     if llm_response is None or llm_response.content is None:
         return None
     parts = list(llm_response.content.parts or [])
-    if not parts:
+    if not parts or any(getattr(p, "function_call", None) is not None for p in parts):
         return None
-    if any(getattr(p, "function_call", None) is not None for p in parts):
-        return None
-
     text = "".join(getattr(p, "text", "") or "" for p in parts).strip()
-    if not text:
-        return None
-    if text == ABSTAIN_MESSAGE:
+    return text or None
+
+
+def validate_answer_after_model(
+    callback_context: CallbackContext, llm_response: LlmResponse
+) -> LlmResponse | None:
+    """Replace an unsupported answer with the abstain string; append the excerpts to a supported one."""
+    text = final_text_of(llm_response)
+    if text is None or text == ABSTAIN_MESSAGE:
         return None
 
     state = callback_context.state

@@ -28,6 +28,8 @@ import vertexai
 from dotenv import load_dotenv
 from vertexai import agent_engines
 
+from agent.rendering import citation_label
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _extract_function_response_chunks(event: dict[str, Any]) -> list[dict] | None:
+def _extract_function_response_chunks(event: dict[str, Any]) -> list[dict[str, Any]] | None:
     content = event.get("content") if isinstance(event, dict) else None
     if not isinstance(content, dict):
         return None
@@ -99,22 +101,12 @@ def _cited_indices(answer: str) -> set[int]:
     return {int(m) for m in _CITATION_PATTERN.findall(answer)}
 
 
-def _citation_label(c: dict) -> str:
-    """Prefer extracted paper metadata (title/authors/journal); fall back to filename."""
-    title = c.get("title")
-    if title:
-        label = title
-        authors = c.get("authors") or []
-        if authors:
-            label += f" — {', '.join(authors)}"
-        journal = c.get("journal")
-        if journal:
-            label += f" ({journal})"
-        return label
-    return c.get("source_display_name") or c.get("source_uri") or "(unknown)"
+def _citation_label(c: dict[str, Any]) -> str:
+    """The same label the deployed agent renders (author, year, title, DOI; else the file name)."""
+    return citation_label(c)
 
 
-def _render_plain(answer: str, chunks: list[dict]) -> str:
+def _render_plain(answer: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return answer
     cited = _cited_indices(answer)
@@ -127,9 +119,7 @@ def _render_plain(answer: str, chunks: list[dict]) -> str:
         label = _citation_label(c)
         uri = c.get("source_uri") or ""
         score = c.get("score")
-        score_str = (
-            f" vector_distance={score:.3f}" if isinstance(score, (int, float)) else ""
-        )
+        score_str = f" vector_distance={score:.3f}" if isinstance(score, (int, float)) else ""
         text = (c.get("text") or "").strip()
         if len(text) > _EXCERPT_MAX_CHARS:
             text = text[:_EXCERPT_MAX_CHARS].rstrip() + "..."
@@ -143,7 +133,7 @@ def _render_plain(answer: str, chunks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _render_structured(answer: str, chunks: list[dict]) -> str:
+def _render_structured(answer: str, chunks: list[dict[str, Any]]) -> str:
     return json.dumps(
         {
             "answer": answer,
@@ -166,11 +156,10 @@ def _render_structured(answer: str, chunks: list[dict]) -> str:
 
 
 def main() -> None:
+    """Send the question from the command line to the deployed agent and print the answer."""
     load_dotenv(_ENV_FILE)
 
-    parser = argparse.ArgumentParser(
-        description="Query the deployed corpus-only ADK agent."
-    )
+    parser = argparse.ArgumentParser(description="Query the deployed corpus-only ADK agent.")
     parser.add_argument("query", help="The question to ask the agent.")
     parser.add_argument(
         "--structured",
@@ -202,7 +191,7 @@ def main() -> None:
     session = remote_app.create_session(user_id=args.user_id)  # type: ignore[attr-defined]
     session_id = session["id"] if isinstance(session, dict) else session.id
 
-    final_chunks: list[dict] = []
+    final_chunks: list[dict[str, Any]] = []
     answer_fragments: list[str] = []
 
     for event in remote_app.stream_query(  # type: ignore[attr-defined]

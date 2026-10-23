@@ -9,9 +9,10 @@ the helpers ``scripts/deploy_agent.py`` + ``scripts/query_agent.py``
 (``make agent-deploy`` / ``make agent-query Q="..."``).
 """
 
-import os
-import logging
 import argparse
+import logging
+import os
+
 import vertexai
 from vertexai.preview import rag
 from vertexai.preview.generative_models import GenerativeModel, Tool
@@ -20,24 +21,21 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     """Execute the query against the RAG engine."""
-    parser = argparse.ArgumentParser(
-        description="Query the Gemini RAG Automator Pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Query the Gemini RAG Automator Pipeline")
     parser.add_argument("query", type=str, help="The question to ask the RAG engine")
     args = parser.parse_args()
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION")
-    corpus_id = os.environ.get(
-        "GCP_SECRET_ID"
-    )  # Fallback, ideally fetched from secret manager
+    corpus_id = os.environ.get("GCP_SECRET_ID")  # Fallback, ideally fetched from secret manager
     model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-2.5-flash")
 
     if not all([project_id, location, corpus_id]):
         logger.error(
-            "Missing required environment variables (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GCP_SECRET_ID)."
+            "Missing required environment variables "
+            "(GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GCP_SECRET_ID)."
         )
         return
 
@@ -46,7 +44,7 @@ def main():
 
     # Note: In a real scenario, you'd fetch the actual Corpus ID (projects/.../locations/.../ragCorpora/...)
     # from Secret Manager. For testing if you have the direct ID, you could pass it directly.
-    # To keep this script simple and functional right away, let's assume we retrieve it like in the Cloud Function.
+    # Kept simple: the corpus id is read the same way the Cloud Function reads it.
 
     from google.cloud import secretmanager
 
@@ -90,9 +88,7 @@ def main():
     candidates = generation_response.candidates
     if candidates:
         grounding_metadata = candidates[0].grounding_metadata
-        grounding_chunks = (
-            grounding_metadata.grounding_chunks if grounding_metadata else []
-        )
+        grounding_chunks = grounding_metadata.grounding_chunks if grounding_metadata else []
         if grounding_chunks:
             logger.info("\nSOURCE CHUNKS:")
             for i, chunk in enumerate(grounding_chunks, start=1):

@@ -1,16 +1,17 @@
 """Script to list files ingested into the Vertex AI RAG Corpus."""
 
-import os
 import logging
+import os
+
 import vertexai
-from vertexai.preview import rag
 from google.cloud import secretmanager
+from vertexai.preview import rag
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     """List all files from the active RAG corpus."""
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION")
@@ -18,7 +19,8 @@ def main():
 
     if not all([project_id, location, secret_id]):
         logger.error(
-            "Missing required environment variables (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GCP_SECRET_ID)."
+            "Missing required environment variables "
+            "(GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GCP_SECRET_ID)."
         )
         return
 
@@ -41,9 +43,7 @@ def main():
         for file in files:
             count += 1
             logger.info(f"  - {file.display_name} (ID: {file.name})")
-            logger.info(
-                f"    Source: {file.gcs_source.uris if file.gcs_source else 'N/A'}"
-            )
+            logger.info(f"    Source: {file.gcs_source.uris if file.gcs_source else 'N/A'}")
 
             # Use getattr with a default of 'N/A' or check if it exists safely
             try:
