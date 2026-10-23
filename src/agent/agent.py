@@ -16,7 +16,6 @@ from .callbacks import (
 from .prompts import return_instructions_root
 from .tools import retrieve_rag_documentation
 
-
 load_dotenv()
 
 if not os.environ.get("GOOGLE_CLOUD_PROJECT"):

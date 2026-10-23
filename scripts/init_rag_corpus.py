@@ -1,10 +1,11 @@
 """Script to initialize a Vertex AI RAG Corpus and store its ID in Secret Manager."""
 
-import os
 import logging
+import os
+
 import vertexai
-from vertexai.preview import rag
 from google.cloud import secretmanager
+from vertexai.preview import rag
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

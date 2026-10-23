@@ -13,6 +13,12 @@ variable "bucket_name" {
   type        = string
 }
 
+variable "bucket_user_members" {
+  description = "Principals ('user:email') who may read and write objects in the documents bucket. The list is authoritative for roles/storage.objectUser on that bucket."
+  type        = list(string)
+  default     = []
+}
+
 variable "secret_id" {
   description = "The secret ID for the RAG Corpus"
   type        = string
@@ -50,10 +56,5 @@ variable "agent_engine_region" {
 
 variable "agent_engine_staging_bucket_name" {
   description = "GCS bucket used by Vertex AI Agent Engine for code packaging during deploy."
-  type        = string
-}
-
-variable "firestore_location" {
-  description = "Location for the Firestore (Native mode) database that stores extracted paper metadata (title/authors/journal) for citation enrichment. Must be a valid Firestore location — see https://cloud.google.com/firestore/docs/locations. Often the same as var.region."
   type        = string
 }

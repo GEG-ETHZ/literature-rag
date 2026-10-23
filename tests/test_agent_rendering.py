@@ -81,11 +81,18 @@ def test_citation_label_prefers_paper_metadata():
     label = citation_label(
         _chunk(
             title="Geothermal Potential",
-            authors=["A. One", "B. Two"],
-            journal="J. Renewable Energy",
+            authors=["Ezzat"],
+            year="2021",
+            doi="10.3390/en14164717",
         )
     )
-    assert label == "Geothermal Potential \u2014 A. One, B. Two (J. Renewable Energy)"
+    assert label == "Ezzat (2021). Geothermal Potential. https://doi.org/10.3390/en14164717"
+
+
+def test_citation_label_leaves_out_missing_parts():
+    assert citation_label(_chunk(title="Only a Title")) == "Only a Title"
+    assert citation_label(_chunk(title="T", year="2020")) == "(2020). T"
+    assert citation_label(_chunk(title="T", authors=["A"], journal="J")) == "A. T (J)"
 
 
 def test_citation_label_falls_back_to_display_name():
@@ -133,6 +140,8 @@ def test_render_structured_includes_paper_metadata():
     assert citation["title"] == "Deep Geothermal Systems"
     assert citation["authors"] == ["A. Rossi", "B. Keller"]
     assert citation["journal"] == "Geothermics"
+    assert citation["year"] is None
+    assert citation["doi"] is None
 
 
 def test_render_structured_omits_paper_metadata_when_absent():

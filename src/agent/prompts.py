@@ -21,9 +21,9 @@ WHEN ANSWERING WITH RETRIEVAL
   call.
 - Cite chunks inline with `[1]`, `[2]`, ... using their `index` field.
 - Add a `Citations:` section at the end listing the sources, one per cited
-  index. When a chunk has `title`, `authors`, and/or `journal` fields, format
-  it as "Title — Author A, Author B (Journal)" (omit any of the three that
-  are missing); otherwise fall back to `source_display_name` (or `source_uri`
+  index. When a chunk has `title`, `authors`, `year` and/or `doi` fields,
+  format it as "Author (Year). Title. https://doi.org/<doi>" (omit whatever is
+  missing); otherwise fall back to `source_display_name` (or `source_uri`
   if no display name).
 - NEVER use prior training knowledge, web information, or general knowledge
   for factual claims. The chunks are the only acceptable source.
@@ -53,4 +53,5 @@ Do not reveal your internal reasoning. Just answer.
 
 
 def return_instructions_root() -> str:
+    """The system instruction of the corpus-only agent."""
     return _SYSTEM_INSTRUCTION

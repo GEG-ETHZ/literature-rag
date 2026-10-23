@@ -1,66 +1,68 @@
 """Function tool that queries the configured Vertex AI RAG corpus."""
 
-import hashlib
 import logging
 import os
 from functools import lru_cache
-from typing import cast
+from typing import Any
 
-from google.cloud import firestore
-from google.cloud.firestore import DocumentSnapshot
+import google.cloud.storage as storage
 from vertexai.preview import rag
 
 logger = logging.getLogger(__name__)
 
-# Must match PAPER_METADATA_COLLECTION / gcs_uri_to_doc_id in src/ingestor/main.py —
-# that's where title/authors/journal get extracted and stored at ingestion time.
-_PAPER_METADATA_COLLECTION = "paper_metadata"
-
-
-def _gcs_uri_to_doc_id(gcs_uri: str) -> str:
-    return hashlib.sha256(gcs_uri.encode("utf-8")).hexdigest()
+# Custom metadata that geg-rag-upload writes on every object (see src/uploader/cli.py).
+# Read at query time to turn a file name into a readable citation.
+METADATA_KEYS = ("doi", "title", "year", "first_author")
 
 
 @lru_cache(maxsize=1)
-def _firestore_client() -> firestore.Client:
-    """Firestore client, built once per process.
+def storage_client() -> storage.Client:
+    """Cloud Storage client, built once per process.
 
     Constructing a client re-runs credential discovery, so building one per
     lookup would add that cost to every retrieval on the query hot path.
     """
-    return firestore.Client()
+    return storage.Client()
 
 
-def _lookup_paper_metadata(gcs_uri: str) -> dict | None:
-    """Look up extracted title/authors/journal for a source document, if any."""
-    if not gcs_uri:
+def split_gcs_uri(gcs_uri: str) -> tuple[str, str] | None:
+    """Return ``(bucket, object name)`` for a ``gs://bucket/name`` URI, else ``None``."""
+    if not gcs_uri.startswith("gs://"):
         return None
+    bucket, _, name = gcs_uri.removeprefix("gs://").partition("/")
+    if not bucket or not name:
+        return None
+    return bucket, name
+
+
+def lookup_paper_metadata(gcs_uri: str) -> dict[str, Any] | None:
+    """Read the paper's DOI, title, year and first author off the object's metadata, if set.
+
+    Best-effort: any failure is logged and the citation falls back to the file name.
+    """
+    parts = split_gcs_uri(gcs_uri)
+    if parts is None:
+        return None
+    bucket, name = parts
     try:
-        client = _firestore_client()
-        # firestore.Client is synchronous; .get() always returns a DocumentSnapshot
-        # here (the Awaitable branch in its type signature applies to AsyncClient).
-        doc = cast(
-            DocumentSnapshot,
-            client.collection(_PAPER_METADATA_COLLECTION)
-            .document(_gcs_uri_to_doc_id(gcs_uri))
-            .get(),
-        )
-    except Exception as e:
-        logger.warning(f"Paper metadata lookup failed for {gcs_uri}: {e}")
+        blob = storage_client().bucket(bucket).get_blob(name)
+    except Exception as error:
+        logger.warning(f"Paper metadata lookup failed for {gcs_uri}: {error}")
         return None
-
-    if not doc.exists:
+    metadata = (blob.metadata if blob is not None else None) or {}
+    if not any(metadata.get(key) for key in METADATA_KEYS):
         return None
-
-    data = doc.to_dict() or {}
+    first_author = metadata.get("first_author")
     return {
-        "title": data.get("title"),
-        "authors": data.get("authors") or [],
-        "journal": data.get("journal"),
+        "title": metadata.get("title"),
+        "authors": [first_author] if first_author else [],
+        "year": metadata.get("year"),
+        "doi": metadata.get("doi"),
+        "journal": None,
     }
 
 
-def retrieve_rag_documentation(query: str) -> dict:
+def retrieve_rag_documentation(query: str) -> dict[str, Any]:
     """Search the configured Vertex AI RAG corpus for chunks relevant to the query.
 
     ALWAYS call this exactly once per user turn before writing an answer. Pass
@@ -74,37 +76,32 @@ def retrieve_rag_documentation(query: str) -> dict:
           - {"chunks": [...]}        when the corpus has matching content
           - {"chunks": [], "empty": True}  when nothing matches
         Each chunk has: index (int, 1-based), text (str), source_uri (str),
-        source_display_name (str), score (float), and — when available from
-        the paper-metadata lookup — title (str), authors (list[str]),
-        journal (str).
+        source_display_name (str), score (float), and, when the object carries
+        paper metadata, title (str), authors (list[str]), year (str), doi (str).
     """
     rag_corpus = os.environ.get("RAG_CORPUS")
     if not rag_corpus:
-        raise RuntimeError(
-            "RAG_CORPUS env var must be set to a full corpus resource path"
-        )
+        raise RuntimeError("RAG_CORPUS env var must be set to a full corpus resource path")
 
     response = rag.retrieval_query(
         text=query,
         rag_resources=[rag.RagResource(rag_corpus=rag_corpus)],
         similarity_top_k=int(os.environ.get("AGENT_TOP_K", "10")),
-        vector_distance_threshold=float(
-            os.environ.get("AGENT_DISTANCE_THRESHOLD", "0.6")
-        ),
+        vector_distance_threshold=float(os.environ.get("AGENT_DISTANCE_THRESHOLD", "0.6")),
     )
 
     contexts = list(response.contexts.contexts) if response.contexts else []
     if not contexts:
         return {"chunks": [], "empty": True}
 
-    paper_metadata_cache: dict[str, dict | None] = {}
-    chunks = []
+    paper_metadata_cache: dict[str, dict[str, Any] | None] = {}
+    chunks: list[dict[str, Any]] = []
     for i, c in enumerate(contexts):
         if c.source_uri not in paper_metadata_cache:
-            paper_metadata_cache[c.source_uri] = _lookup_paper_metadata(c.source_uri)
+            paper_metadata_cache[c.source_uri] = lookup_paper_metadata(c.source_uri)
         paper = paper_metadata_cache[c.source_uri]
 
-        chunk = {
+        chunk: dict[str, Any] = {
             "index": i + 1,
             "text": c.text,
             "source_uri": c.source_uri,
@@ -112,9 +109,7 @@ def retrieve_rag_documentation(query: str) -> dict:
             "score": c.score,
         }
         if paper:
-            chunk["title"] = paper["title"]
-            chunk["authors"] = paper["authors"]
-            chunk["journal"] = paper["journal"]
+            chunk.update(paper)
         chunks.append(chunk)
 
     return {"chunks": chunks}
