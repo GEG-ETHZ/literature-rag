@@ -91,6 +91,21 @@ resource "google_project_iam_member" "aiplatform_user" {
   member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
 }
 
+# On Agent Engine the agent's Cloud Storage calls are billed to this project,
+# which needs serviceusage.services.use; without it the citation lookup 403s.
+resource "google_project_iam_member" "service_usage_consumer" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
+}
+
+# The agent is deployed with tracing on; without this its spans are refused.
+resource "google_project_iam_member" "cloudtrace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
+}
+
 # The agent runs as the same service account and reads each cited object's
 # custom metadata (doi, title, year, first_author, written by geg-rag-upload)
 # to render the citation. Without this grant the lookup 403s and citations
