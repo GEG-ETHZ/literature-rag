@@ -26,11 +26,12 @@ resource "time_sleep" "wait_for_apis" {
   create_duration = "60s"
 }
 
+# force_destroy off: a destroy must never take the papers with it.
 resource "google_storage_bucket" "rag_document_source" {
   name                        = lower(var.bucket_name)
   location                    = var.region
   uniform_bucket_level_access = true
-  force_destroy               = true
+  force_destroy               = false
   depends_on                  = [time_sleep.wait_for_apis]
 }
 
@@ -45,7 +46,7 @@ resource "google_storage_bucket" "agent_engine_staging" {
   name                        = lower(var.agent_engine_staging_bucket_name)
   location                    = var.agent_engine_region
   uniform_bucket_level_access = true
-  force_destroy               = true
+  force_destroy               = false
   depends_on                  = [time_sleep.wait_for_apis]
 }
 
@@ -90,6 +91,21 @@ resource "google_project_iam_member" "aiplatform_user" {
   member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
 }
 
+# On Agent Engine the agent's Cloud Storage calls are billed to this project,
+# which needs serviceusage.services.use; without it the citation lookup 403s.
+resource "google_project_iam_member" "service_usage_consumer" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
+}
+
+# The agent is deployed with tracing on; without this its spans are refused.
+resource "google_project_iam_member" "cloudtrace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
+}
+
 # The agent runs as the same service account and reads each cited object's
 # custom metadata (doi, title, year, first_author, written by geg-rag-upload)
 # to render the citation. Without this grant the lookup 403s and citations
@@ -116,9 +132,11 @@ resource "google_secret_manager_secret" "rag_corpus_id" {
   depends_on = [time_sleep.wait_for_apis]
 }
 
+# No depends_on: deferring this read to apply time makes the member unknown at
+# plan time and forces a replace of gcs_pubsub_publishing, which drops every
+# Cloud Storage trigger in the project for the seconds in between.
 data "google_storage_project_service_account" "gcs_account" {
-  project    = var.project_id
-  depends_on = [time_sleep.wait_for_apis]
+  project = var.project_id
 }
 
 resource "google_project_iam_member" "gcs_pubsub_publishing" {
@@ -147,7 +165,7 @@ resource "google_cloudfunctions2_function" "ingestor" {
   service_config {
     max_instance_count    = 1
     min_instance_count    = 0
-    available_memory      = "512M"
+    available_memory      = "512Mi"
     timeout_seconds       = 540
     service_account_email = google_service_account.rag_ingestor_sa.email
     environment_variables = {
@@ -181,19 +199,5 @@ resource "google_cloudfunctions2_function" "ingestor" {
     google_project_iam_member.gcs_pubsub_publishing,
     google_storage_bucket_iam_member.ingestor_source_reader,
     time_sleep.wait_for_apis
-  ]
-}
-
-resource "null_resource" "init_rag_corpus" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = "echo 'Intended logic: uv run python scripts/init_rag_corpus.py'"
-  }
-
-  depends_on = [
-    google_secret_manager_secret.rag_corpus_id
   ]
 }
