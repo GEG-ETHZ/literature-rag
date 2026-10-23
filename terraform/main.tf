@@ -186,17 +186,3 @@ resource "google_cloudfunctions2_function" "ingestor" {
     time_sleep.wait_for_apis
   ]
 }
-
-resource "null_resource" "init_rag_corpus" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = "echo 'Intended logic: uv run python scripts/init_rag_corpus.py'"
-  }
-
-  depends_on = [
-    google_secret_manager_secret.rag_corpus_id
-  ]
-}
