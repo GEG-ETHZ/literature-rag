@@ -149,7 +149,6 @@ activemq-data/
 
 # Environments
 .env
-.envrc
 .venv
 env/
 venv/
@@ -224,7 +223,6 @@ __marimo__/
 # Custom Ignores
 *.zip
 agent_meta/*
-.agent/
 .sisyphus/
 .DS_Store
 **/.DS_Store
@@ -243,3 +241,12 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# GEG additions
+# Papers belong in the bucket, never in this public repository
+*.pdf
+.coverage
+.duckversions/
+logs/
+# The committed tfvars holds only non-secret deployment values
+!terraform/geg-core-dev.tfvars

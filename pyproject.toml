@@ -1,45 +1,117 @@
 [project]
-name = "gemini-rag-automator"
+name = "literature-rag"
 version = "0.1.0"
-description = "Add your description here"
+description = "The GEG literature RAG: the geg-rag-upload tool, the ingestion Cloud Function, the corpus-only agent and the Terraform that owns them."
+authors = [{name = "ETHZ/EAPS/GEG Group"}]
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "cloudevents>=1.12.0",
     "functions-framework>=3.10.1",
     "google-adk>=1.31.0",
     "google-cloud-aiplatform[adk,agent-engines]>=1.135.0",
-    "google-cloud-firestore>=2.20.0",
     "google-cloud-secret-manager>=2.26.0",
-    "pypdf>=5.0.0",
+    "google-cloud-storage>=3.17.1",
+    "httpx>=0.28.1",
+    "pymupdf>=2.0",
     "python-dotenv>=1.0.0",
-    "ruff>=0.15.12",
+    "python-slugify>=9.1.3",
+    "tabulate>=0.10.0",
+]
+
+[dependency-groups]   # e.g. uv add --group dev ruff
+dev = [
+    "mypy>=1.20.2",  # static type checker
+    "pytest~=9.0",  # testing
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "ruff~=0.15",  # linter and formatter
+    "prek>=0.3.13",  # git hook management
+    "types-mock>=5.2.0.20260408",
 ]
 
 [project.scripts]
-gra-ingest = "local_ingestor.main:main"
+geg-rag-upload = "uploader.cli:main"
+geg-rag-ingest = "local_ingestor.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestor", "src/local_ingestor", "src/agent"]
+packages = ["src/agent", "src/ingestor", "src/local_ingestor", "src/uploader"]
 
-[dependency-groups]
-dev = [
-    "mypy>=1.20.2",
-    "pre-commit>=4.6.0",
-    "pytest>=9.0.3",
-    "pytest-cov>=7.1.0",
-    "pytest-mock>=3.15.1",
-    "types-mock>=5.2.0.20260408",
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+src = ["src", "scripts", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = [
+    "A",    # flake8-builtins
+    "ARG",  # flake8-unused-arguments
+    "C4",   # flake8-comprehensions
+    "C90",  # mccabe
+    "D",    # pydocstyle
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "D400",
+    "D415",
+    "D205",
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "ingestor", "local_ingestor", "uploader"]
+
+[tool.ruff.lint.per-file-ignores]   # otherwise ruff shows "imported but unused" error
+"__init__.py" = ["F401"]
+"tests/**" = ["D"]                  # no docstring rules inside tests/ folder
+
+[tool.ruff.lint.pydocstyle]   # defines the doc string format
+convention = "google"
+
 [tool.mypy]
-files = ["src", "scripts"]
+python_version = "3.12"
+files = ["src", "scripts", "tests"]
+mypy_path = ["src", "scripts"]
 explicit_package_bases = true
-namespace_packages = true
+warn_return_any = true
+warn_unused_configs = true
+strict = true
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=80"
+
+[[tool.mypy.overrides]]
+module = ["google.cloud.*", "google.adk.*", "google.genai.*", "google.auth.*", "tabulate", "vertexai", "vertexai.*", "functions_framework", "cloudevents.*", "pymupdf", "pymupdf.*"]
+ignore_missing_imports = true
+
+# PyMuPDF ships only partial type hints; its Document/Page calls are untyped.
+[[tool.mypy.overrides]]
+module = ["uploader.pdfmeta"]
+disallow_untyped_calls = false
+
+# Tests are checked but need not carry annotations.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+check_untyped_defs = true
+
+# src/ingestor/main.py is deployed as-is to Cloud Functions; functions_framework's decorator is untyped.
+[[tool.mypy.overrides]]
+module = ["ingestor.main"]
+disallow_untyped_decorators = false
