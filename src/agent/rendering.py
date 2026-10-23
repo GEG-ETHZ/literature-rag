@@ -20,6 +20,7 @@ to 0 to disable truncation).
 import json
 import os
 import re
+from typing import Any
 
 _DEFAULT_EXCERPT_MAX_CHARS = 600
 
@@ -54,28 +55,32 @@ def structured_output_enabled() -> bool:
     )
 
 
-def citation_label(chunk: dict) -> str:
+def citation_label(chunk: dict[str, Any]) -> str:
     """Human-readable source label for a chunk.
 
-    Prefers extracted paper metadata (title/authors/journal) when present and
-    falls back to the display name or URI. The metadata fields are populated by
-    the paper-metadata lookup (see ``src/agent/tools.py``); when absent this
-    degrades gracefully to the filename.
+    Uses the paper metadata when present, as ``Author (Year). Title. https://doi.org/...``
+    with missing parts left out, and falls back to the display name or URI. The
+    metadata comes from the object's custom metadata (see ``src/agent/tools.py``);
+    when absent this degrades gracefully to the filename.
     """
     title = chunk.get("title")
-    if title:
-        label = title
-        authors = chunk.get("authors") or []
-        if authors:
-            label += f" \u2014 {', '.join(authors)}"
-        journal = chunk.get("journal")
-        if journal:
-            label += f" ({journal})"
-        return label
-    return chunk.get("source_display_name") or chunk.get("source_uri") or "(unknown)"
+    if not title:
+        return chunk.get("source_display_name") or chunk.get("source_uri") or "(unknown)"
+    head = ", ".join(chunk.get("authors") or [])
+    year = chunk.get("year")
+    if year:
+        head = f"{head} ({year})" if head else f"({year})"
+    label = f"{head}. {title}" if head else str(title)
+    journal = chunk.get("journal")
+    if journal:
+        label += f" ({journal})"
+    doi = chunk.get("doi")
+    if doi:
+        label += f". https://doi.org/{doi}"
+    return label
 
 
-def render_plain(answer: str, chunks: list[dict]) -> str:
+def render_plain(answer: str, chunks: list[dict[str, Any]]) -> str:
     """Append a ``Source excerpts:`` section to ``answer`` for the given chunks.
 
     Only the chunks the answer actually cites (via ``[n]``) are shown, so the
@@ -97,9 +102,7 @@ def render_plain(answer: str, chunks: list[dict]) -> str:
         label = citation_label(c)
         uri = c.get("source_uri") or ""
         score = c.get("score")
-        score_str = (
-            f" vector_distance={score:.3f}" if isinstance(score, (int, float)) else ""
-        )
+        score_str = f" vector_distance={score:.3f}" if isinstance(score, (int, float)) else ""
         text = (c.get("text") or "").strip()
         if max_chars and len(text) > max_chars:
             text = text[:max_chars].rstrip() + "..."
@@ -113,7 +116,7 @@ def render_plain(answer: str, chunks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_structured(answer: str, chunks: list[dict]) -> str:
+def render_structured(answer: str, chunks: list[dict[str, Any]]) -> str:
     """JSON envelope with the answer and full (untruncated) citation chunks."""
     return json.dumps(
         {
@@ -125,6 +128,8 @@ def render_structured(answer: str, chunks: list[dict]) -> str:
                     "source_display_name": c.get("source_display_name"),
                     "title": c.get("title"),
                     "authors": c.get("authors") or [],
+                    "year": c.get("year"),
+                    "doi": c.get("doi"),
                     "journal": c.get("journal"),
                     "score": c.get("score"),
                     "text": c.get("text"),
@@ -136,7 +141,7 @@ def render_structured(answer: str, chunks: list[dict]) -> str:
     )
 
 
-def render_answer(answer: str, chunks: list[dict]) -> str:
+def render_answer(answer: str, chunks: list[dict[str, Any]]) -> str:
     """Render ``answer`` + ``chunks`` per the deploy-time output format."""
     if structured_output_enabled():
         return render_structured(answer, chunks)

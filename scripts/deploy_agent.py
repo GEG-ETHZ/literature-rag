@@ -90,6 +90,7 @@ def _resolve_corpus_resource(project_id: str) -> str:
 
 
 def main() -> None:
+    """Create or update the agent on Agent Engine from the values in ``.env``."""
     load_dotenv(_ENV_FILE)
 
     project_id = _require_env("GOOGLE_CLOUD_PROJECT")
@@ -105,7 +106,8 @@ def main() -> None:
 
     staging_bucket_uri = f"gs://{staging_bucket_name}"
     logger.info(
-        f"[+] vertexai.init project={project_id} location={agent_location} staging_bucket={staging_bucket_uri}"
+        f"[+] vertexai.init project={project_id} location={agent_location} "
+        f"staging_bucket={staging_bucket_uri}"
     )
     vertexai.init(
         project=project_id,
@@ -151,14 +153,11 @@ def main() -> None:
     # then unpickles into a broken object and `stream_query` silently yields
     # nothing (HTTP 200, empty body). Pinning keeps container == pickler.
     adk_pin = _pin("google-adk", ">=1.31.0")
-    aiplatform_pin = _pin(
-        "google-cloud-aiplatform", ">=1.135.0", extras="[adk,agent-engines]"
-    )
+    aiplatform_pin = _pin("google-cloud-aiplatform", ">=1.135.0", extras="[adk,agent-engines]")
     logger.info(f"[+] Pinning {adk_pin} and {aiplatform_pin} to match this env.")
     requirements = [
         adk_pin,
         aiplatform_pin,
-        "google-cloud-firestore>=2.20.0",
         "python-dotenv>=1.0.0",
     ]
 
@@ -169,7 +168,7 @@ def main() -> None:
     extra_packages = ["./agent"]
     src_root = _REPO_ROOT / "src"
 
-    existing = [a for a in agent_engines.list(filter=f'display_name="{display_name}"')]
+    existing = list(agent_engines.list(filter=f'display_name="{display_name}"'))
 
     prev_cwd = os.getcwd()
     os.chdir(src_root)
@@ -177,8 +176,8 @@ def main() -> None:
         if existing:
             target = existing[0]
             logger.info(f"[+] Updating existing agent: {target.resource_name}")
-            remote_app = target.update(  # type: ignore[arg-type]
-                agent_engine=wrapped,
+            remote_app = target.update(
+                agent_engine=wrapped,  # type: ignore[arg-type]
                 requirements=requirements,
                 extra_packages=extra_packages,
                 env_vars=env_vars,
@@ -188,8 +187,8 @@ def main() -> None:
             )
         else:
             logger.info(f"[+] Creating new agent: display_name={display_name}")
-            remote_app = agent_engines.create(  # type: ignore[arg-type]
-                wrapped,
+            remote_app = agent_engines.create(
+                wrapped,  # type: ignore[arg-type]
                 requirements=requirements,
                 extra_packages=extra_packages,
                 env_vars=env_vars,
@@ -202,9 +201,7 @@ def main() -> None:
 
     logger.info(f"[+] Deployed: {remote_app.resource_name}")
 
-    set_key(
-        str(_ENV_FILE), "AGENT_ENGINE_ID", remote_app.resource_name, quote_mode="never"
-    )
+    set_key(str(_ENV_FILE), "AGENT_ENGINE_ID", remote_app.resource_name, quote_mode="never")
     logger.info(f"[+] Wrote AGENT_ENGINE_ID to {_ENV_FILE}")
 
 
