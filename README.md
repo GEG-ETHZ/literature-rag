@@ -11,7 +11,8 @@ Forked from [danielvogler/Gemini-Rag-Automator](https://github.com/danielvogler/
 
 ## Ask a question
 
-GCP Console, project `geg-core-dev`: Agent Platform → Agents → Deployments →
+Open the [playground of `GEG-Publication-Corpus-Agent`](https://console.cloud.google.com/agent-platform/runtimes/locations/europe-west1/agent-engines/4185840766943232000/playground?project=geg-core-dev),
+or in the GCP Console, project `geg-core-dev`: Agent Platform → Agents → Deployments →
 `GEG-Publication-Corpus-Agent` → Playground. You need GCP access, see geg-ops
 `computing/infrastructure/gcp.md`. From a terminal, after the setup below:
 
