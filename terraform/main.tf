@@ -50,10 +50,13 @@ resource "google_storage_bucket" "agent_engine_staging" {
   depends_on                  = [time_sleep.wait_for_apis]
 }
 
+# __pycache__ is left out: a local test run would otherwise change the zip hash
+# and redeploy the function without any change to its code.
 data "archive_file" "function_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../src/ingestor"
   output_path = "${path.module}/../src/ingestor.zip"
+  excludes    = ["__pycache__", "__pycache__/**"]
 }
 
 resource "google_storage_bucket_object" "function_zip" {
@@ -116,12 +119,25 @@ resource "google_storage_bucket_iam_member" "ingestor_source_reader" {
   member = "serviceAccount:${google_service_account.rag_ingestor_sa.email}"
 }
 
-# Group members read and write papers through geg-rag-upload. Authoritative
-# for this one role on this bucket; the member list lives in geg-core-dev.tfvars.
-resource "google_storage_bucket_iam_binding" "bucket_users" {
+# Group members add papers through geg-rag-upload, which runs with their own
+# credentials: it lists the bucket to skip duplicates (objectViewer) and creates
+# objects (objectCreator). Neither role may overwrite or delete, so a DOI-named
+# object cannot be replaced by hand or with `--force`; that takes
+# roles/storage.objectAdmin, which geg-core-infra grants to the project admins.
+# objectCreator is authoritative on this bucket. objectViewer is granted per
+# member because the ingestor's service account holds it too (above).
+# The member list lives in geg-core-dev.tfvars.
+resource "google_storage_bucket_iam_binding" "bucket_creators" {
   bucket  = google_storage_bucket.rag_document_source.name
-  role    = "roles/storage.objectUser"
+  role    = "roles/storage.objectCreator"
   members = var.bucket_user_members
+}
+
+resource "google_storage_bucket_iam_member" "bucket_readers" {
+  for_each = toset(var.bucket_user_members)
+  bucket   = google_storage_bucket.rag_document_source.name
+  role     = "roles/storage.objectViewer"
+  member   = each.value
 }
 
 resource "google_secret_manager_secret" "rag_corpus_id" {

@@ -25,6 +25,9 @@ uses general knowledge.
 
 ## Add a paper
 
+Published versions only. An accepted manuscript that is not yet published, a preprint of a paper
+that has a published version, or anything under embargo does not go into the bucket.
+
 Once:
 
 ```bash
@@ -55,7 +58,10 @@ minutes.
 
 ### When a file is skipped
 
-- The target name already exists in the bucket (`--force` overwrites).
+- The target name already exists in the bucket. `--force` overwrites, but only for a project
+  admin: group members hold `objectCreator` and `objectViewer` on the bucket, which cannot
+  replace or delete an object, so a wrong PDF under a DOI name is fixed by an admin, not by a
+  second upload.
 - A byte-identical file exists under any name. Never overridden; a second copy helps nobody.
 
 DOI, title, year, first author, original file name, uploader and time are written to the object's
@@ -84,7 +90,7 @@ Secret Manager and the agent's `.env` is never committed.
 
 | What | Name |
 |---|---|
-| Papers bucket | `geg-core-dev-rag-own-publications` (group members: `roles/storage.objectUser`) |
+| Papers bucket | `geg-core-dev-rag-own-publications` (group members: `roles/storage.objectCreator` and `objectViewer`, no overwrite or delete) |
 | Ingestion function | `rag-own-publications-ingestor`, Python 3.12, one instance, Eventarc retries on |
 | Service account | `rag-ingestor-sa-corpus-agent` (function and agent) |
 | Corpus | `GEG-Own-Publications`, resource name in secret `rag-own-publications-corpus-id` |

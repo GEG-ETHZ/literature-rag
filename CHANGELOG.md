@@ -21,6 +21,13 @@ adopt SemVer strictly.
 
 ### Changed
 
+- Group members hold `roles/storage.objectCreator` and `roles/storage.objectViewer` on the
+  papers bucket instead of `roles/storage.objectUser`, so the no-duplicates rule of
+  `geg-rag-upload` is enforced by IAM: nobody but a project admin can overwrite or delete a
+  DOI-named object. Raised in geg-core-infra !10 review.
+- README: the bucket takes published versions only.
+- The function source zip leaves out `__pycache__`, so a local test run no longer changes
+  its hash and redeploys the function. The deployed zip carried three stale `.pyc` files.
 - Citations name the paper from the object's Crossref metadata (`first_author`, `year`,
   `title`, `doi`) that `geg-rag-upload` writes, instead of Gemini reading page one into
   Firestore. Firestore is gone from the code and the Terraform.
