@@ -14,7 +14,7 @@ variable "bucket_name" {
 }
 
 variable "bucket_user_members" {
-  description = "Principals ('user:email') who may read and write objects in the documents bucket. The list is authoritative for roles/storage.objectUser on that bucket."
+  description = "Principals ('user:email') who may list, read and add objects in the documents bucket, but not overwrite or delete them. The list is authoritative for roles/storage.objectCreator on that bucket and grants roles/storage.objectViewer per member."
   type        = list(string)
   default     = []
 }
