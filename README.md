@@ -6,6 +6,11 @@ answers questions only from that corpus, citing author, year, title and DOI. Thi
 all of it: the upload tool, the ingestion function, the agent, and the Terraform that owns their
 GCP resources.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
+  <img alt="Every answer comes from a paper the group uploaded, or there is no answer. You upload a paper: the uploader names it by its DOI, the bucket stores it, a Cloud Function imports it into the RAG corpus. You ask a question: the agent searches only the corpus, a callback abstains when the answer is not backed by it, and rendering cites author, year, title and DOI." src="docs/assets/hero-light.svg">
+</picture>
+
 Forked from [danielvogler/Gemini-Rag-Automator](https://github.com/danielvogler/Gemini-Rag-Automator)
 (MIT) on 2026-10-23; self-sufficient since.
 
