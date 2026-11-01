@@ -56,6 +56,10 @@ test:
 # Run all quality checks in CI order: format → lint → typecheck → test
 check: fmt lint typecheck test
 
+# Redraw the README hero, light and dark, into docs/assets/
+readme-assets:
+    uv run python scripts/readme_assets.py
+
 # --- Terraform (OpenTofu): the GCP resources of the geg-core-dev deployment ---
 
 tf_dir := "terraform"
