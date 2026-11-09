@@ -140,10 +140,15 @@ resource "google_storage_bucket_iam_member" "bucket_readers" {
   member   = each.value
 }
 
+# User-managed in the corpus region: automatic replication may store the secret anywhere.
 resource "google_secret_manager_secret" "rag_corpus_id" {
   secret_id = var.secret_id
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
   depends_on = [time_sleep.wait_for_apis]
 }

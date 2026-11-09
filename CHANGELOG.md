@@ -21,6 +21,10 @@ adopt SemVer strictly.
 
 ### Changed
 
+- The corpus-ID secret is replicated only in the corpus region instead of automatically, so
+  every stored piece of the deployment stays in the EU. Changing replication replaces the
+  secret and drops its versions: after `tofu apply`, add the corpus resource name again with
+  `gcloud secrets versions add`.
 - Ingestion and the agent use `gemini-3.8-flash` on the `eu` multi-region endpoint instead of
   `gemini-2.5-flash`, which Google lists as retired on 20 Oct 2026. No Gemini 3.x model is
   served in `europe-west1`; the corpora stay there. The ingestion function now fails without
