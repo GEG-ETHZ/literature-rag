@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+import pytest
 from cloudevents.http import CloudEvent
 
 from ingestor.main import get_corpus_id, process_file
@@ -55,7 +56,11 @@ def test_process_file_missing_data(mocker):
     mock_import.assert_not_called()
 
 
-def test_process_file_success(mocker):
+EU_MODEL = "projects/123/locations/eu/publishers/google/models/gemini-3.8-flash"
+
+
+def test_process_file_success(mocker, monkeypatch):
+    monkeypatch.setenv("GEMINI_MODEL_NAME", EU_MODEL)
     mock_get_corpus = mocker.patch("ingestor.main.get_corpus_id")
     mock_get_corpus.return_value = "mock_corpus_123"
 
@@ -94,7 +99,21 @@ def test_process_file_success(mocker):
 
     mock_chunking_config.assert_called_once_with(chunk_size=512, chunk_overlap=50)
     mock_transformation_config.assert_called_once_with(chunking_config=mock_chunking_config.return_value)
-    mock_llm_parser.assert_called_once_with(model_name="gemini-2.5-flash")
+    mock_llm_parser.assert_called_once_with(model_name=EU_MODEL)
+
+
+def test_process_file_requires_model_name(mocker, monkeypatch):
+    monkeypatch.delenv("GEMINI_MODEL_NAME", raising=False)
+    mocker.patch("ingestor.main.get_corpus_id", return_value="mock_corpus_123")
+    mocker.patch("ingestor.main.vertexai.init")
+    mock_import = mocker.patch("ingestor.main.rag.import_files")
+
+    attributes = {"type": "google.cloud.storage.object.v1.finalized", "source": "test"}
+    event = CloudEvent(attributes, {"bucket": "test-bucket", "name": "test_document.pdf"})
+
+    with pytest.raises(ValueError, match="GEMINI_MODEL_NAME"):
+        process_file(event)
+    mock_import.assert_not_called()
 
 
 def test_process_file_get_corpus_id_fails(mocker):
@@ -116,7 +135,8 @@ def test_process_file_get_corpus_id_fails(mocker):
     mock_import.assert_not_called()
 
 
-def test_process_file_import_fails(mocker):
+def test_process_file_import_fails(mocker, monkeypatch):
+    monkeypatch.setenv("GEMINI_MODEL_NAME", EU_MODEL)
     mock_get_corpus = mocker.patch("ingestor.main.get_corpus_id")
     mock_get_corpus.return_value = "mock_corpus_123"
 

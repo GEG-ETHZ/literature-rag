@@ -89,9 +89,10 @@ tests/               one file per module; the CLI is tested against a fake store
 
 ## Deployment in geg-core-dev
 
-Everything runs in project `geg-core-dev`, region `europe-west1` (Gemini and RAG Engine are both
-served there; `europe-west6` is not). Nothing below is secret; the corpus resource name sits in
-Secret Manager and the agent's `.env` is never committed.
+Everything runs in project `geg-core-dev`, region `europe-west1` (RAG Engine is served there;
+`europe-west6` is not). The model, `gemini-3.8-flash`, runs on the `eu` multi-region endpoint,
+because no Gemini 3.x model is served in `europe-west1`. Nothing below is secret; the corpus
+resource name sits in Secret Manager and the agent's `.env` is never committed.
 
 | What | Name |
 |---|---|

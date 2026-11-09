@@ -7,6 +7,7 @@ import vertexai as _vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.apps import App
+from google.adk.models import Gemini
 from google.genai import types
 
 from .callbacks import (
@@ -48,8 +49,13 @@ _vertexai.init(
 )
 
 
+# Gemini 3.x is not served in the corpus region, so the model runs on the eu multi-region
+# endpoint while retrieval above stays in the corpus region.
 root_agent = Agent(
-    model=os.environ.get("AGENT_MODEL_NAME", "gemini-2.5-flash"),
+    model=Gemini(
+        model=os.environ.get("AGENT_MODEL_NAME", "gemini-3.8-flash"),
+        client_kwargs={"location": os.environ.get("AGENT_MODEL_LOCATION", "eu")},
+    ),
     name="gra_corpus_agent",
     instruction=return_instructions_root(),
     tools=[retrieve_rag_documentation],

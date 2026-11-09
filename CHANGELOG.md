@@ -21,6 +21,15 @@ adopt SemVer strictly.
 
 ### Changed
 
+- The corpus-ID secret is replicated only in the corpus region instead of automatically, so
+  every stored piece of the deployment stays in the EU. Changing replication replaces the
+  secret and drops its versions: after `tofu apply`, add the corpus resource name again with
+  `gcloud secrets versions add`.
+- Ingestion and the agent use `gemini-3.8-flash` on the `eu` multi-region endpoint instead of
+  `gemini-2.5-flash`, which Google lists as retired on 20 Oct 2026. No Gemini 3.x model is
+  served in `europe-west1`; the corpora stay there. The ingestion function now fails without
+  `GEMINI_MODEL_NAME` instead of falling back to a short model name, and Terraform requires the
+  full model path with the project number, the only form RAG Engine accepted for `eu`.
 - Group members hold `roles/storage.objectCreator` and `roles/storage.objectViewer` on the
   papers bucket instead of `roles/storage.objectUser`, so the no-duplicates rule of
   `geg-rag-upload` is enforced by IAM: nobody but a project admin can overwrite or delete a

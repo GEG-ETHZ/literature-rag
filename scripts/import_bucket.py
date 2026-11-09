@@ -21,7 +21,11 @@ def main() -> None:
     parser.add_argument("--bucket", default="geg-core-dev-rag-own-publications")
     parser.add_argument("--project", default="geg-core-dev")
     parser.add_argument("--location", default="europe-west1")
-    parser.add_argument("--model", default="gemini-2.5-flash")
+    parser.add_argument(
+        "--model",
+        default="projects/436056981716/locations/eu/publishers/google/models/gemini-3.8-flash",
+        help="full model path with the project number; Gemini 3.x is not served in europe-west1",
+    )
     args = parser.parse_args()
     vertexai.init(project=args.project, location=args.location)
     response = rag.import_files(

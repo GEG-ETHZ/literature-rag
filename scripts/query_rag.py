@@ -13,9 +13,8 @@ import argparse
 import logging
 import os
 
-import vertexai
-from vertexai.preview import rag
-from vertexai.preview.generative_models import GenerativeModel, Tool
+from google import genai
+from google.genai import types
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -28,19 +27,15 @@ def main() -> None:
     args = parser.parse_args()
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
     corpus_id = os.environ.get("GCP_SECRET_ID")  # Fallback, ideally fetched from secret manager
-    model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-2.5-flash")
+    # Reads the agent's AGENT_MODEL_NAME and AGENT_MODEL_LOCATION, not GEMINI_MODEL_NAME (the
+    # ingestion parser): Gemini 3.x is not served in the corpus region.
+    model_name = os.environ.get("AGENT_MODEL_NAME", "gemini-3.8-flash")
+    model_location = os.environ.get("AGENT_MODEL_LOCATION", "eu")
 
-    if not all([project_id, location, corpus_id]):
-        logger.error(
-            "Missing required environment variables "
-            "(GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GCP_SECRET_ID)."
-        )
+    if not all([project_id, corpus_id]):
+        logger.error("Missing required environment variables (GOOGLE_CLOUD_PROJECT, GCP_SECRET_ID).")
         return
-
-    # Initialize Vertex AI
-    vertexai.init(project=project_id, location=location)
 
     # Note: In a real scenario, you'd fetch the actual Corpus ID (projects/.../locations/.../ragCorpora/...)
     # from Secret Manager. For testing if you have the direct ID, you could pass it directly.
@@ -60,24 +55,21 @@ def main() -> None:
     logger.info(f"\n[+] Using RAG Corpus: {true_corpus_id}")
     logger.info(f"[+] Querying {model_name} with question: '{args.query}'\n")
 
-    # Define the RAG Tool pointing to our corpus
-    rag_retrieval_tool = Tool.from_retrieval(
-        retrieval=rag.Retrieval(
-            source=rag.VertexRagStore(
-                rag_resources=[rag.RagResource(rag_corpus=true_corpus_id)],
+    # The RAG tool points at the corpus in its own region; the model runs on model_location.
+    rag_retrieval_tool = types.Tool(
+        retrieval=types.Retrieval(
+            vertex_rag_store=types.VertexRagStore(
+                rag_resources=[types.VertexRagStoreRagResource(rag_corpus=true_corpus_id)],
                 similarity_top_k=5,
-            ),
+            )
         )
     )
-
-    # Initialize the Gemini model with the RAG tool
-    model = GenerativeModel(
-        model_name=model_name,
-        tools=[rag_retrieval_tool],
+    genai_client = genai.Client(vertexai=True, project=project_id, location=model_location)
+    generation_response = genai_client.models.generate_content(
+        model=model_name,
+        contents=args.query,
+        config=types.GenerateContentConfig(tools=[rag_retrieval_tool]),
     )
-
-    # Generate the grounded response
-    generation_response = model.generate_content(args.query)
 
     logger.info("ANSWER:")
     logger.info(generation_response.text)
@@ -93,6 +85,8 @@ def main() -> None:
             logger.info("\nSOURCE CHUNKS:")
             for i, chunk in enumerate(grounding_chunks, start=1):
                 retrieved_context = chunk.retrieved_context
+                if retrieved_context is None:
+                    continue
                 title = retrieved_context.title or retrieved_context.uri
                 logger.info(f"\n[{i}] {title}")
                 logger.info(retrieved_context.text)
