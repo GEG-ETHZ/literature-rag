@@ -73,8 +73,14 @@ def process_file(cloud_event: CloudEvent) -> None:
 
     logger.info(f"Importing {gcs_source} into RAG Corpus {corpus_id}...")
 
+    # Full resource path on the eu endpoint, with the project number:
+    # projects/<number>/locations/eu/publishers/google/models/<model>. No default, because a
+    # short model name lets RAG Engine pick where the PDF is parsed.
+    gemini_model_name = os.environ.get("GEMINI_MODEL_NAME")
+    if not gemini_model_name:
+        raise ValueError("GEMINI_MODEL_NAME is not set")
+
     try:
-        gemini_model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-2.5-flash")
         response = call_when_free(
             lambda: rag.import_files(
                 corpus_name=corpus_id,

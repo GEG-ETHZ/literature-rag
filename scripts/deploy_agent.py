@@ -8,6 +8,9 @@ Required env vars:
     GOOGLE_CLOUD_PROJECT, AGENT_ENGINE_LOCATION, AGENT_STAGING_BUCKET_NAME,
     AGENT_DISPLAY_NAME, AGENT_MODEL_NAME, GOOGLE_CLOUD_LOCATION (the corpus region).
 
+Optional env vars:
+    AGENT_MODEL_LOCATION — endpoint the model runs on (default ``eu``).
+
 Corpus identification (one of):
     RAG_CORPUS — full resource path projects/.../locations/.../ragCorpora/... .
                  Used as-is when set; Secret Manager is bypassed.
@@ -137,6 +140,7 @@ def main() -> None:
     env_vars = {
         "RAG_CORPUS": corpus_resource,
         "AGENT_MODEL_NAME": model_name,
+        "AGENT_MODEL_LOCATION": os.environ.get("AGENT_MODEL_LOCATION", "eu"),
         "AGENT_ENGINE_LOCATION": agent_location,
         "GOOGLE_GENAI_USE_VERTEXAI": "True",
         "AGENT_TOP_K": os.environ.get("AGENT_TOP_K", "10"),

@@ -45,8 +45,13 @@ variable "function_name" {
 }
 
 variable "gemini_model_name" {
-  description = "The name of the Gemini model to use"
+  description = "Full resource path of the Gemini model that parses PDFs: projects/<number>/locations/<location>/publishers/google/models/<model>"
   type        = string
+
+  validation {
+    condition     = can(regex("^projects/[0-9]+/locations/[a-z0-9-]+/publishers/google/models/[a-z0-9.-]+$", var.gemini_model_name))
+    error_message = "Use the full resource path with the project number; a short model name lets RAG Engine choose where PDFs are parsed."
+  }
 }
 
 variable "agent_engine_region" {

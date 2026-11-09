@@ -14,7 +14,9 @@ corpus_description  = "GEG publications, one PDF per DOI, uploaded with geg-rag-
 
 service_account_id = "rag-ingestor-sa-corpus-agent"
 function_name      = "rag-own-publications-ingestor"
-gemini_model_name  = "gemini-2.5-flash"
+# Gemini 3.x is not served in europe-west1; the eu endpoint keeps PDF parsing in the EU.
+# RAG Engine accepts the path only with the project number, not the project ID.
+gemini_model_name = "projects/436056981716/locations/eu/publishers/google/models/gemini-3.8-flash"
 
 agent_engine_region              = "europe-west1"
 agent_engine_staging_bucket_name = "geg-publications-rag-agent-staging-bucket"
