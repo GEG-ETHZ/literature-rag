@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from uploader.crossref import Record, clean_title, fetch_record
+from uploader.crossref import Record, clean_title, fetch_record, polite_get
 
 DATACITE_DOIS = "https://api.datacite.org/dois/"
 DATACITE_PLACEHOLDER_PREFIXES = ("(:", ":")
@@ -35,7 +35,7 @@ def first_family_name(creators: list[dict[str, Any]]) -> str | None:
 def fetch_datacite_record(doi: str, client: httpx.Client) -> Record | None:
     """Return title, year and first author from DataCite, or ``None`` if the DOI is unknown there."""
     try:
-        response = client.get(f"{DATACITE_DOIS}{doi}")
+        response = polite_get(client, f"{DATACITE_DOIS}{doi}")
     except httpx.HTTPError:
         return None
     if response.status_code != 200:

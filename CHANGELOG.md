@@ -47,6 +47,8 @@ adopt SemVer strictly.
   `year` and are cited with author and year instead of title only. DataCite placeholders
   such as `(:unkn)` are not stored as authors. geg-ops #376.
 - Titles from Crossref and DataCite are stored without JATS or MathML tags and line breaks.
+- A Crossref or DataCite lookup rejected with 429 (more than ten requests a second) is
+  retried after a wait instead of leaving the paper without author and year.
 
 ### Removed
 

@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 from uploader.crossref import doi_resolves, fetch_record
 
@@ -82,3 +83,45 @@ def test_fetch_record_returns_a_clean_title() -> None:
     body = {"message": {"title": ["Flow of CO\n   <sub>2</sub>\n   in rock"], "author": [{"family": "Doe"}]}}
     record = fetch_record("10.1/abc", client_returning(lambda _r: httpx.Response(200, json=body)))
     assert record is not None and record.title == "Flow of CO2 in rock"
+
+
+CROSSREF_BODY = {
+    "message": {"title": ["Paper"], "issued": {"date-parts": [[2020]]}, "author": [{"family": "Doe"}]}
+}
+
+
+def test_fetch_record_waits_and_retries_when_crossref_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    waits: list[float] = []
+    monkeypatch.setattr("uploader.crossref.time.sleep", waits.append)
+    answers = iter([httpx.Response(429), httpx.Response(429), httpx.Response(200, json=CROSSREF_BODY)])
+    record = fetch_record("10.1/abc", client_returning(lambda _r: next(answers)))
+    assert record is not None and record.first_author == "Doe"
+    assert len(waits) == 2 and waits[1] > waits[0] > 0
+
+
+def test_fetch_record_gives_up_after_repeated_rate_limiting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uploader import crossref
+
+    calls: list[str] = []
+    monkeypatch.setattr("uploader.crossref.time.sleep", lambda _s: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(429)
+
+    assert fetch_record("10.1/abc", client_returning(handler)) is None
+    assert len(calls) == crossref.RATE_LIMIT_ATTEMPTS
+
+
+def test_a_404_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    calls: list[str] = []
+    monkeypatch.setattr("uploader.crossref.time.sleep", lambda _s: pytest.fail("must not wait on a 404"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(404)
+
+    assert fetch_record("10.1/missing", client_returning(handler)) is None
+    assert len(calls) == 1

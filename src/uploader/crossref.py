@@ -2,6 +2,7 @@
 
 import html
 import re
+import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
@@ -13,6 +14,9 @@ DOI_RESOLVER = "https://doi.org/"
 USER_AGENT = "rag-own-publications/0.1 (GEG ETH Zurich; mailto:geg-computing@ethz.ch)"
 TIMEOUT_SECONDS = 15.0
 TITLE_MATCH_THRESHOLD = 0.9
+HTTP_TOO_MANY_REQUESTS = 429
+RATE_LIMIT_ATTEMPTS = 4
+RATE_LIMIT_WAIT_SECONDS = 1.0
 MARKUP_TAG = re.compile(r"</?[A-Za-z][^<>]*>")
 GAP_BEFORE_SUBSCRIPT = re.compile(r"\s+(?=<sub>)")
 
@@ -44,6 +48,21 @@ def new_client() -> httpx.Client:
     return httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT_SECONDS, follow_redirects=False)
 
 
+def polite_get(client: httpx.Client, url: str, params: dict[str, str | int] | None = None) -> httpx.Response:
+    """GET ``url``; when the registry answers 429, wait 1 s, 2 s, 3 s and ask again.
+
+    Crossref allows ten requests a second and rejects the rest. Without the wait a rejected lookup looks
+    like an unknown DOI, and the paper is stored without author and year.
+    """
+    response = client.get(url, params=params)
+    for attempt in range(1, RATE_LIMIT_ATTEMPTS):
+        if response.status_code != HTTP_TOO_MANY_REQUESTS:
+            break
+        time.sleep(RATE_LIMIT_WAIT_SECONDS * attempt)
+        response = client.get(url, params=params)
+    return response
+
+
 def doi_resolves(doi: str, client: httpx.Client) -> bool:
     """Return whether doi.org knows ``doi``. A redirect counts as yes; a 4xx or 5xx as no."""
     try:
@@ -56,7 +75,7 @@ def doi_resolves(doi: str, client: httpx.Client) -> bool:
 def fetch_record(doi: str, client: httpx.Client) -> Record | None:
     """Return title, year and first author from Crossref, or ``None`` if the DOI is unknown there."""
     try:
-        response = client.get(f"{CROSSREF_WORKS}{doi}")
+        response = polite_get(client, f"{CROSSREF_WORKS}{doi}")
     except httpx.HTTPError:
         return None
     if response.status_code != 200:
@@ -81,7 +100,7 @@ def search_doi_by_title(title: str, text: str, client: httpx.Client) -> str | No
     returns a best guess, however poor, and bare titles such as "Coversheet" collide.
     """
     try:
-        response = client.get(CROSSREF_WORKS.rstrip("/"), params={"query.bibliographic": title, "rows": 1})
+        response = polite_get(client, CROSSREF_WORKS.rstrip("/"), {"query.bibliographic": title, "rows": 1})
     except httpx.HTTPError:
         return None
     if response.status_code != 200:
