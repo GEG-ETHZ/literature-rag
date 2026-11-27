@@ -18,6 +18,9 @@ adopt SemVer strictly.
 - Terraform state in `gs://geg-core-dev-tfstate` under `literature-rag/state`; the
   group-wide bucket binding; the non-secret deployment values in
   `terraform/geg-core-dev.tfvars`.
+- `geg-rag-upload backfill`: adds missing `first_author` and `year` to objects already in
+  the bucket, from Crossref or DataCite. Report only unless `--apply`; never overwrites a
+  value or the PDF, and each write is guarded by the object's metageneration. geg-ops #376.
 
 ### Changed
 

@@ -122,3 +122,37 @@ def test_describe_takes_author_and_year_from_datacite_when_crossref_does_not_kno
     assert record is not None
     assert (record.first_author, record.year) == ("Ezzat", 2024)
     assert paper.title == "Plasma-Pulse Geo-Drilling"
+
+
+def test_backfill_parses_without_sources_and_is_a_dry_run_by_default() -> None:
+    options = cli.parse_args(["backfill"])
+    assert (options.command, options.sources, options.apply) == ("backfill", [], False)
+    assert cli.parse_args(["backfill", "--apply"]).apply is True
+
+
+def test_run_backfill_reports_by_default_and_patches_with_apply(capsys: pytest.CaptureFixture[str]) -> None:
+    from uploader.backfill import StoredObject
+    from uploader.crossref import Record
+
+    class Store:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict[str, str], int]] = []
+
+        def list_objects(self) -> list[StoredObject]:
+            return [StoredObject("10.3929_x.pdf", 1, {"doi": "10.3929/x"})]
+
+        def patch(self, name: str, fields: Mapping[str, str], metageneration: int) -> None:
+            self.patches.append((name, dict(fields), metageneration))
+
+    def lookup(_doi: str) -> Record:
+        return Record(title="T", year=2024, first_author="Ezzat")
+
+    store = Store()
+    assert cli.run_backfill(cli.parse_args(["backfill"]), store, lookup) == 0
+    out = capsys.readouterr().out
+    assert store.patches == []
+    assert "DRY RUN" in out and "first_author=Ezzat" in out and "would patch: 1" in out
+
+    assert cli.run_backfill(cli.parse_args(["backfill", "--apply"]), store, lookup) == 0
+    assert store.patches == [("10.3929_x.pdf", {"first_author": "Ezzat", "year": "2024"}, 1)]
+    assert "patched: 1" in capsys.readouterr().out

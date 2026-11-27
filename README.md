@@ -71,12 +71,23 @@ minutes.
 
 DOI, title, year, first author, original file name, uploader and time are written to the object's
 custom metadata. The agent reads them back to render each citation, so the bucket stays flat and
-still searchable.
+still searchable. Year and first author come from Crossref, or from DataCite for ETH
+Research Collection and arXiv DOIs.
+
+### Fill in author and year afterwards
+
+```bash
+geg-rag-upload backfill          # report which objects lack first_author or year
+geg-rag-upload backfill --apply  # write them (project admin; needs storage.objects.update)
+```
+
+Only missing fields are added; existing values and the PDF stay as they are, so nothing is
+re-ingested. A write fails instead of overwriting when the object changed since it was read.
 
 ## Layout
 
 ```text
-src/uploader/        geg-rag-upload: doi, naming, plan (pure), pdfmeta, crossref, bucket, cli
+src/uploader/        geg-rag-upload: doi, naming, plan (pure), pdfmeta, crossref, datacite, bucket, backfill, cli
 src/ingestor/        the Cloud Function: Eventarc on object.finalized → rag.import_files, with retry
 src/local_ingestor/  geg-rag-ingest: re-run the handler locally for one object
 src/agent/           the corpus-only ADK agent: tool, callbacks, prompt, citation rendering
