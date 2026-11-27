@@ -13,7 +13,8 @@ import httpx
 from tabulate import tabulate
 
 from uploader.bucket import ObjectStore, download_pdfs, gcs_store, local_md5
-from uploader.crossref import Record, doi_resolves, fetch_record, new_client, search_doi_by_title
+from uploader.crossref import Record, doi_resolves, new_client, search_doi_by_title
+from uploader.datacite import lookup_record
 from uploader.doi import clean_doi, find_doi
 from uploader.pdfmeta import read_pdf, title_from
 from uploader.plan import Action, BucketState, Decision, Paper, decide
@@ -78,7 +79,7 @@ def collect_pdfs(options: Options, workdir: Path) -> list[Path]:
 
 
 def describe(path: Path, options: Options, client: httpx.Client | None) -> tuple[Paper, Record | None]:
-    """Read ``path`` and return what is known about it, consulting doi.org and Crossref unless offline."""
+    """Read ``path`` and return what is known, asking doi.org, Crossref and DataCite unless offline."""
     info = read_pdf(path)
     doi = clean_doi(options.doi) if options.doi else find_doi(info.metadata, info.text)
     if doi and client is not None and not doi_resolves(doi, client):
@@ -88,7 +89,7 @@ def describe(path: Path, options: Options, client: httpx.Client | None) -> tuple
         doi = None
     if doi is None and client is not None and not options.title:
         doi = doi_from_title(path, title_from(info), info.text, client)
-    record = fetch_record(doi, client) if doi and client is not None else None
+    record = lookup_record(doi, client) if doi and client is not None else None
     title = options.title or (record.title if record and record.title else None) or title_from(info)
     if doi is None and not options.title and title and title == info.largest_font_line:
         print(

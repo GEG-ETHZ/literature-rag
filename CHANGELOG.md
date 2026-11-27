@@ -37,6 +37,11 @@ adopt SemVer strictly.
 
 ### Fixed
 
+- `geg-rag-upload` asks DataCite when Crossref does not know a DOI, so ETH Research
+  Collection (`10.3929/...`) and arXiv (`10.48550/...`) papers get `first_author` and
+  `year` and are cited with author and year instead of title only. DataCite placeholders
+  such as `(:unkn)` are not stored as authors. geg-ops #376.
+
 ### Removed
 
 - Firestore database, `roles/datastore.user`, `pypdf`.

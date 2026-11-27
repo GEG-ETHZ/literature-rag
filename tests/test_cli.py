@@ -94,3 +94,31 @@ def test_failed_upload_is_reported_and_the_run_continues(
     assert code == 1
     assert "10.1000_one.pdf" in names and "some-heading-text.pdf" in names
     assert "upload failed" in capsys.readouterr().out
+
+
+def test_describe_takes_author_and_year_from_datacite_when_crossref_does_not_know_the_doi(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    pdf = tmp_path / "thesis.pdf"
+    write_pdf(pdf, "10.3929/ethz-b-000697688")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "doi.org":
+            return httpx.Response(302)
+        if request.url.host == "api.crossref.org":
+            return httpx.Response(404)
+        creators = [{"nameType": "Personal", "familyName": "Ezzat"}]
+        attributes = {
+            "titles": [{"title": "Plasma-Pulse Geo-Drilling"}],
+            "publicationYear": 2024,
+            "creators": creators,
+        }
+        return httpx.Response(200, json={"data": {"attributes": attributes}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    paper, record = cli.describe(pdf, cli.parse_args(["upload", str(pdf)]), client)
+    assert record is not None
+    assert (record.first_author, record.year) == ("Ezzat", 2024)
+    assert paper.title == "Plasma-Pulse Geo-Drilling"
