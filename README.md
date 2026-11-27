@@ -79,10 +79,19 @@ Research Collection and arXiv DOIs.
 ```bash
 geg-rag-upload backfill          # report which objects lack first_author or year
 geg-rag-upload backfill --apply  # write them (project admin; needs storage.objects.update)
+geg-rag-upload backfill --titles --manual docs/no-doi-metadata.csv   # see below
 ```
 
-Only missing fields are added; existing values and the PDF stay as they are, so nothing is
+Author and year are only added, never overwritten, and the PDF stays as it is, so nothing is
 re-ingested. A write fails instead of overwriting when the object changed since it was read.
+Every form reports only until `--apply` is added.
+
+- `--titles` replaces the title of a paper that has a DOI with the registry's title when the two
+  differ. A title read from the PDF's own metadata can be a template placeholder, another
+  paper's title, or cut off.
+- `--manual` takes author and year for papers without a DOI from
+  [`docs/no-doi-metadata.csv`](docs/no-doi-metadata.csv). After uploading such a paper, add a
+  row (`object,first_author,year,evidence`) in a pull request and run the command again.
 
 ## Layout
 

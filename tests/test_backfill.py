@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -165,3 +166,81 @@ def test_matching_filename_year_is_not_reported_as_a_conflict() -> None:
     store = FakeMetadataStore([stored("10.3929_e.pdf", metadata)])
     rows = backfill(store, lookup_from({"10.3929/e": EZZAT}), apply=False)  # type: ignore[arg-type]
     assert (rows[0].fields["year"], rows[0].reason) == ("2024", "")
+
+
+ROSSI = Record(title="Advanced drilling technologies", year=2020, first_author="Rossi")
+COMPLETE = {"doi": "10.3929/r", "first_author": "Rossi", "year": "2020"}
+
+
+def test_titles_are_left_alone_unless_asked() -> None:
+    store = FakeMetadataStore(
+        [stored("r.pdf", {**COMPLETE, "title": "Paper Title (use style: paper title)"})]
+    )
+    assert backfill(store, lookup_from({"10.3929/r": ROSSI}), apply=True) == []  # type: ignore[arg-type]
+    assert store.patches == []
+
+
+def test_fix_titles_replaces_a_title_that_differs_from_the_registry() -> None:
+    store = FakeMetadataStore(
+        [stored("r.pdf", {**COMPLETE, "title": "Paper Title (use style: paper title)"})]
+    )
+    rows = backfill(store, lookup_from({"10.3929/r": ROSSI}), apply=True, fix_titles=True)  # type: ignore[arg-type]
+    assert store.patches == [("r.pdf", {"title": "Advanced drilling technologies"}, 1)]
+    assert rows[0].action is BackfillAction.PATCHED
+    assert rows[0].reason == "title was: Paper Title (use style: paper title)"
+
+
+def test_fix_titles_skips_matching_titles_and_records_without_a_title() -> None:
+    objects = [
+        stored("same.pdf", {**COMPLETE, "title": "Advanced drilling technologies"}),
+        stored("untitled.pdf", {"doi": "10.1/u", "first_author": "Doe", "year": "2020", "title": "Kept"}),
+    ]
+    store = FakeMetadataStore(objects)
+    untitled = Record(title=None, year=2020, first_author="Doe")
+    lookup = lookup_from({"10.3929/r": ROSSI, "10.1/u": untitled})
+    assert backfill(store, lookup, apply=True, fix_titles=True) == []  # type: ignore[arg-type]
+    assert store.patches == []
+
+
+def test_fix_titles_reports_a_failed_lookup_for_a_complete_object() -> None:
+    store = FakeMetadataStore([stored("r.pdf", {**COMPLETE, "title": "T"})])
+    rows = backfill(store, lookup_from({}), apply=True, fix_titles=True)  # type: ignore[arg-type]
+    assert [r.action for r in rows] == [BackfillAction.NOT_FOUND]
+
+
+def test_manual_record_fills_an_object_without_doi_and_never_its_title() -> None:
+    store = FakeMetadataStore([stored("hydro.pdf", {"title": "Hydro-Mechanically Coupled Flow"})])
+    manual = {"hydro.pdf": Record(title=None, year=2016, first_author="Vogler")}
+    rows = backfill(store, lookup_from({}), apply=True, fix_titles=True, manual=manual)  # type: ignore[arg-type]
+    assert store.patches == [("hydro.pdf", {"first_author": "Vogler", "year": "2016"}, 1)]
+    assert rows[0].action is BackfillAction.PATCHED
+
+
+def test_manual_record_is_ignored_for_an_object_that_has_a_doi() -> None:
+    store = FakeMetadataStore([stored("x.pdf", {"doi": "10.3929/x"})])
+    manual = {"x.pdf": Record(title=None, year=1999, first_author="Wrong")}
+    rows = backfill(store, lookup_from({"10.3929/x": EZZAT}), apply=False, manual=manual)  # type: ignore[arg-type]
+    assert rows[0].fields == {"first_author": "Ezzat", "year": "2024"}
+
+
+def test_load_manual_reads_rows_and_rejects_bad_ones(tmp_path: Path) -> None:
+    from uploader.backfill import load_manual
+
+    good = tmp_path / "good.csv"
+    good.write_text("object,first_author,year,evidence\nhydro.pdf,Vogler,2016,first page\n", encoding="utf-8")
+    assert load_manual(good) == {"hydro.pdf": Record(title=None, year=2016, first_author="Vogler")}
+
+    bad_year = tmp_path / "bad_year.csv"
+    bad_year.write_text("object,first_author,year,evidence\nhydro.pdf,Vogler,16,x\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="year"):
+        load_manual(bad_year)
+
+    no_author = tmp_path / "no_author.csv"
+    no_author.write_text("object,first_author,year,evidence\nhydro.pdf,,2016,x\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="first_author"):
+        load_manual(no_author)
+
+    missing_column = tmp_path / "missing.csv"
+    missing_column.write_text("object,year\nhydro.pdf,2016\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="columns"):
+        load_manual(missing_column)

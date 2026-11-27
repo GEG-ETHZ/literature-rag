@@ -12,7 +12,14 @@ from pathlib import Path
 import httpx
 from tabulate import tabulate
 
-from uploader.backfill import BackfillAction, BackfillRow, GcsMetadataStore, MetadataStore, backfill
+from uploader.backfill import (
+    BackfillAction,
+    BackfillRow,
+    GcsMetadataStore,
+    MetadataStore,
+    backfill,
+    load_manual,
+)
 from uploader.bucket import ObjectStore, download_pdfs, gcs_store, local_md5
 from uploader.crossref import Record, doi_resolves, new_client, search_doi_by_title
 from uploader.datacite import lookup_record
@@ -41,6 +48,8 @@ class Options:
     doi: str | None
     title: str | None
     apply: bool = False
+    titles: bool = False
+    manual: str | None = None
 
 
 def parse_args(argv: Sequence[str]) -> Options:
@@ -65,6 +74,10 @@ def parse_args(argv: Sequence[str]) -> Options:
     fill.add_argument("--bucket", default=DEFAULT_BUCKET)
     fill.add_argument("--project", default=DEFAULT_PROJECT)
     fill.add_argument("--apply", action="store_true", help="write the metadata; without it, report only")
+    fill.add_argument(
+        "--titles", action="store_true", help="also replace titles that differ from the registry"
+    )
+    fill.add_argument("--manual", metavar="CSV", help="author and year for papers without a DOI")
     ns = parser.parse_args(argv)
     overrides = (getattr(ns, "doi", None), getattr(ns, "title", None))
     sources = list(getattr(ns, "sources", []))
@@ -72,7 +85,15 @@ def parse_args(argv: Sequence[str]) -> Options:
         parser.error("--doi and --title apply to exactly one PDF")
     flags = (getattr(ns, "dry_run", False), getattr(ns, "force", False), getattr(ns, "offline", False))
     return Options(
-        ns.command, sources, ns.bucket, ns.project, *flags, *overrides, getattr(ns, "apply", False)
+        ns.command,
+        sources,
+        ns.bucket,
+        ns.project,
+        *flags,
+        *overrides,
+        apply=getattr(ns, "apply", False),
+        titles=getattr(ns, "titles", False),
+        manual=getattr(ns, "manual", None),
     )
 
 
@@ -194,7 +215,12 @@ def render_backfill(rows: list[BackfillRow], apply: bool) -> str:
 
 def run_backfill(options: Options, store: MetadataStore, lookup: Callable[[str], Record | None]) -> int:
     """Fill in missing author and year; report only unless ``--apply``."""
-    rows = backfill(store, lookup, apply=options.apply)
+    try:
+        manual = load_manual(Path(options.manual)) if options.manual else {}
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_ATTENTION
+    rows = backfill(store, lookup, apply=options.apply, fix_titles=options.titles, manual=manual)
     print(render_backfill(rows, options.apply))
     return EXIT_ATTENTION if any(r.action is BackfillAction.FAILED for r in rows) else EXIT_OK
 

@@ -21,6 +21,8 @@ adopt SemVer strictly.
 - `geg-rag-upload backfill`: adds missing `first_author` and `year` to objects already in
   the bucket, from Crossref or DataCite. Report only unless `--apply`; never overwrites a
   value or the PDF, and each write is guarded by the object's metageneration. geg-ops #376.
+- `geg-rag-upload backfill --titles` replaces a stored title that differs from the registry's;
+  `--manual docs/no-doi-metadata.csv` supplies author and year for papers without a DOI.
 
 ### Changed
 
@@ -44,6 +46,7 @@ adopt SemVer strictly.
   Collection (`10.3929/...`) and arXiv (`10.48550/...`) papers get `first_author` and
   `year` and are cited with author and year instead of title only. DataCite placeholders
   such as `(:unkn)` are not stored as authors. geg-ops #376.
+- Titles from Crossref and DataCite are stored without JATS or MathML tags and line breaks.
 
 ### Removed
 

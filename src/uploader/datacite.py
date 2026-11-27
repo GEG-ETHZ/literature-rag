@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from uploader.crossref import Record, fetch_record
+from uploader.crossref import Record, clean_title, fetch_record
 
 DATACITE_DOIS = "https://api.datacite.org/dois/"
 DATACITE_PLACEHOLDER_PREFIXES = ("(:", ":")
@@ -44,7 +44,7 @@ def fetch_datacite_record(doi: str, client: httpx.Client) -> Record | None:
     titles = attributes.get("titles") or [{}]
     year = attributes.get("publicationYear")
     return Record(
-        title=titles[0].get("title"),
+        title=clean_title(titles[0].get("title")),
         year=int(year) if year else None,
         first_author=first_family_name(attributes.get("creators") or []),
     )

@@ -65,3 +65,20 @@ def test_search_doi_by_title_rejects_match_whose_author_is_absent_from_text() ->
     title = "Code development for modeling induced seismicity"
     client = client_returning(search_handler(title))
     assert search_doi_by_title(title, "LA-UR-20-20362 Birdsell, Saar", client) is None
+
+
+def test_clean_title_strips_markup_and_collapses_whitespace() -> None:
+    from uploader.crossref import clean_title
+
+    raw = "Changes induced by reactive transport of\n   <scp>CO</scp>\n   <sub>2</sub>\n   ‐rich brine"
+    assert clean_title(raw) == "Changes induced by reactive transport of CO2 ‐rich brine"
+    assert clean_title("A &amp; B  study") == "A & B study"
+    assert clean_title("Plain title") == "Plain title"
+    assert clean_title(None) is None
+    assert clean_title("  <i></i> ") is None
+
+
+def test_fetch_record_returns_a_clean_title() -> None:
+    body = {"message": {"title": ["Flow of CO\n   <sub>2</sub>\n   in rock"], "author": [{"family": "Doe"}]}}
+    record = fetch_record("10.1/abc", client_returning(lambda _r: httpx.Response(200, json=body)))
+    assert record is not None and record.title == "Flow of CO2 in rock"
