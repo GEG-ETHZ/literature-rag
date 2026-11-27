@@ -1,6 +1,8 @@
 """Validate a DOI and fetch its bibliographic record from Crossref."""
 
+import html
 import re
+import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
@@ -12,6 +14,11 @@ DOI_RESOLVER = "https://doi.org/"
 USER_AGENT = "rag-own-publications/0.1 (GEG ETH Zurich; mailto:geg-computing@ethz.ch)"
 TIMEOUT_SECONDS = 15.0
 TITLE_MATCH_THRESHOLD = 0.9
+HTTP_TOO_MANY_REQUESTS = 429
+RATE_LIMIT_ATTEMPTS = 4
+RATE_LIMIT_WAIT_SECONDS = 1.0
+MARKUP_TAG = re.compile(r"</?[A-Za-z][^<>]*>")
+GAP_BEFORE_SUBSCRIPT = re.compile(r"\s+(?=<sub>)")
 
 
 @dataclass(frozen=True)
@@ -23,9 +30,37 @@ class Record:
     first_author: str | None
 
 
+def clean_title(title: str | None) -> str | None:
+    """Return ``title`` without JATS or MathML tags, entities or line breaks; ``None`` if nothing is left.
+
+    Crossref delivers titles with a line break and indentation around each tag, such as ``CO``,
+    ``<sub>2</sub>`` and ``injection`` on three lines. A subscript is joined to the word before it
+    (``CO2``); every other tag is dropped and the whitespace around it collapsed.
+    """
+    if not title:
+        return None
+    text = html.unescape(MARKUP_TAG.sub("", GAP_BEFORE_SUBSCRIPT.sub("", title)))
+    return " ".join(text.split()) or None
+
+
 def new_client() -> httpx.Client:
     """Return an HTTP client with the polite headers Crossref asks for."""
     return httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT_SECONDS, follow_redirects=False)
+
+
+def polite_get(client: httpx.Client, url: str, params: dict[str, str | int] | None = None) -> httpx.Response:
+    """GET ``url``; when the registry answers 429, wait 1 s, 2 s, 3 s and ask again.
+
+    Crossref allows ten requests a second and rejects the rest. Without the wait a rejected lookup looks
+    like an unknown DOI, and the paper is stored without author and year.
+    """
+    response = client.get(url, params=params)
+    for attempt in range(1, RATE_LIMIT_ATTEMPTS):
+        if response.status_code != HTTP_TOO_MANY_REQUESTS:
+            break
+        time.sleep(RATE_LIMIT_WAIT_SECONDS * attempt)
+        response = client.get(url, params=params)
+    return response
 
 
 def doi_resolves(doi: str, client: httpx.Client) -> bool:
@@ -40,7 +75,7 @@ def doi_resolves(doi: str, client: httpx.Client) -> bool:
 def fetch_record(doi: str, client: httpx.Client) -> Record | None:
     """Return title, year and first author from Crossref, or ``None`` if the DOI is unknown there."""
     try:
-        response = client.get(f"{CROSSREF_WORKS}{doi}")
+        response = polite_get(client, f"{CROSSREF_WORKS}{doi}")
     except httpx.HTTPError:
         return None
     if response.status_code != 200:
@@ -49,7 +84,7 @@ def fetch_record(doi: str, client: httpx.Client) -> Record | None:
     titles = message.get("title") or [None]
     date_parts = (message.get("issued") or {}).get("date-parts") or [[None]]
     authors = message.get("author") or [{}]
-    return Record(title=titles[0], year=date_parts[0][0], first_author=authors[0].get("family"))
+    return Record(title=clean_title(titles[0]), year=date_parts[0][0], first_author=authors[0].get("family"))
 
 
 def normalised(title: str) -> str:
@@ -65,7 +100,7 @@ def search_doi_by_title(title: str, text: str, client: httpx.Client) -> str | No
     returns a best guess, however poor, and bare titles such as "Coversheet" collide.
     """
     try:
-        response = client.get(CROSSREF_WORKS.rstrip("/"), params={"query.bibliographic": title, "rows": 1})
+        response = polite_get(client, CROSSREF_WORKS.rstrip("/"), {"query.bibliographic": title, "rows": 1})
     except httpx.HTTPError:
         return None
     if response.status_code != 200:

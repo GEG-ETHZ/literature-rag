@@ -71,12 +71,32 @@ minutes.
 
 DOI, title, year, first author, original file name, uploader and time are written to the object's
 custom metadata. The agent reads them back to render each citation, so the bucket stays flat and
-still searchable.
+still searchable. Year and first author come from Crossref, or from DataCite for ETH
+Research Collection and arXiv DOIs.
+
+### Fill in author and year afterwards
+
+```bash
+geg-rag-upload backfill          # report which objects lack first_author or year
+geg-rag-upload backfill --apply  # write them (project admin; needs storage.objects.update)
+geg-rag-upload backfill --titles --manual docs/no-doi-metadata.csv   # see below
+```
+
+Author and year are only added, never overwritten, and the PDF stays as it is, so nothing is
+re-ingested. A write fails instead of overwriting when the object changed since it was read.
+Every form reports only until `--apply` is added.
+
+- `--titles` replaces the title of a paper that has a DOI with the registry's title when the two
+  differ. A title read from the PDF's own metadata can be a template placeholder, another
+  paper's title, or cut off.
+- `--manual` takes author and year for papers without a DOI from
+  [`docs/no-doi-metadata.csv`](docs/no-doi-metadata.csv). After uploading such a paper, add a
+  row (`object,first_author,year,evidence`) in a pull request and run the command again.
 
 ## Layout
 
 ```text
-src/uploader/        geg-rag-upload: doi, naming, plan (pure), pdfmeta, crossref, bucket, cli
+src/uploader/        geg-rag-upload: doi, naming, plan (pure), pdfmeta, crossref, datacite, bucket, backfill, cli
 src/ingestor/        the Cloud Function: Eventarc on object.finalized → rag.import_files, with retry
 src/local_ingestor/  geg-rag-ingest: re-run the handler locally for one object
 src/agent/           the corpus-only ADK agent: tool, callbacks, prompt, citation rendering

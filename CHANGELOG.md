@@ -18,6 +18,11 @@ adopt SemVer strictly.
 - Terraform state in `gs://geg-core-dev-tfstate` under `literature-rag/state`; the
   group-wide bucket binding; the non-secret deployment values in
   `terraform/geg-core-dev.tfvars`.
+- `geg-rag-upload backfill`: adds missing `first_author` and `year` to objects already in
+  the bucket, from Crossref or DataCite. Report only unless `--apply`; never overwrites a
+  value or the PDF, and each write is guarded by the object's metageneration. geg-ops #376.
+- `geg-rag-upload backfill --titles` replaces a stored title that differs from the registry's;
+  `--manual docs/no-doi-metadata.csv` supplies author and year for papers without a DOI.
 
 ### Changed
 
@@ -36,6 +41,14 @@ adopt SemVer strictly.
 - Ingestion function on `python312` with Eventarc retries on, as deployed.
 
 ### Fixed
+
+- `geg-rag-upload` asks DataCite when Crossref does not know a DOI, so ETH Research
+  Collection (`10.3929/...`) and arXiv (`10.48550/...`) papers get `first_author` and
+  `year` and are cited with author and year instead of title only. DataCite placeholders
+  such as `(:unkn)` are not stored as authors. geg-ops #376.
+- Titles from Crossref and DataCite are stored without JATS or MathML tags and line breaks.
+- A Crossref or DataCite lookup rejected with 429 (more than ten requests a second) is
+  retried after a wait instead of leaving the paper without author and year.
 
 ### Removed
 

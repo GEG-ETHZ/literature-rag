@@ -1,10 +1,10 @@
-"""Command line: ``geg-rag-upload upload <pdf...>`` and ``geg-rag-upload migrate <folder|gs://bucket>``."""
+"""Command line: ``geg-rag-upload upload <pdf...>``, ``migrate <folder|gs://bucket>`` and ``backfill``."""
 
 import argparse
 import getpass
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,8 +12,17 @@ from pathlib import Path
 import httpx
 from tabulate import tabulate
 
+from uploader.backfill import (
+    BackfillAction,
+    BackfillRow,
+    GcsMetadataStore,
+    MetadataStore,
+    backfill,
+    load_manual,
+)
 from uploader.bucket import ObjectStore, download_pdfs, gcs_store, local_md5
-from uploader.crossref import Record, doi_resolves, fetch_record, new_client, search_doi_by_title
+from uploader.crossref import Record, doi_resolves, new_client, search_doi_by_title
+from uploader.datacite import lookup_record
 from uploader.doi import clean_doi, find_doi
 from uploader.pdfmeta import read_pdf, title_from
 from uploader.plan import Action, BucketState, Decision, Paper, decide
@@ -38,6 +47,9 @@ class Options:
     offline: bool
     doi: str | None
     title: str | None
+    apply: bool = False
+    titles: bool = False
+    manual: str | None = None
 
 
 def parse_args(argv: Sequence[str]) -> Options:
@@ -56,12 +68,32 @@ def parse_args(argv: Sequence[str]) -> Options:
         p.add_argument("--dry-run", action="store_true", help="report only; upload nothing")
         p.add_argument("--force", action="store_true", help="overwrite an object that has the same name")
         p.add_argument("--offline", action="store_true", help="skip doi.org and Crossref lookups")
+    fill = sub.add_parser(
+        "backfill", help="add missing first_author and year to objects already in the bucket"
+    )
+    fill.add_argument("--bucket", default=DEFAULT_BUCKET)
+    fill.add_argument("--project", default=DEFAULT_PROJECT)
+    fill.add_argument("--apply", action="store_true", help="write the metadata; without it, report only")
+    fill.add_argument(
+        "--titles", action="store_true", help="also replace titles that differ from the registry"
+    )
+    fill.add_argument("--manual", metavar="CSV", help="author and year for papers without a DOI")
     ns = parser.parse_args(argv)
     overrides = (getattr(ns, "doi", None), getattr(ns, "title", None))
-    if any(overrides) and len(ns.sources) != 1:
+    sources = list(getattr(ns, "sources", []))
+    if any(overrides) and len(sources) != 1:
         parser.error("--doi and --title apply to exactly one PDF")
+    flags = (getattr(ns, "dry_run", False), getattr(ns, "force", False), getattr(ns, "offline", False))
     return Options(
-        ns.command, list(ns.sources), ns.bucket, ns.project, ns.dry_run, ns.force, ns.offline, *overrides
+        ns.command,
+        sources,
+        ns.bucket,
+        ns.project,
+        *flags,
+        *overrides,
+        apply=getattr(ns, "apply", False),
+        titles=getattr(ns, "titles", False),
+        manual=getattr(ns, "manual", None),
     )
 
 
@@ -78,7 +110,7 @@ def collect_pdfs(options: Options, workdir: Path) -> list[Path]:
 
 
 def describe(path: Path, options: Options, client: httpx.Client | None) -> tuple[Paper, Record | None]:
-    """Read ``path`` and return what is known about it, consulting doi.org and Crossref unless offline."""
+    """Read ``path`` and return what is known, asking doi.org, Crossref and DataCite unless offline."""
     info = read_pdf(path)
     doi = clean_doi(options.doi) if options.doi else find_doi(info.metadata, info.text)
     if doi and client is not None and not doi_resolves(doi, client):
@@ -88,7 +120,7 @@ def describe(path: Path, options: Options, client: httpx.Client | None) -> tuple
         doi = None
     if doi is None and client is not None and not options.title:
         doi = doi_from_title(path, title_from(info), info.text, client)
-    record = fetch_record(doi, client) if doi and client is not None else None
+    record = lookup_record(doi, client) if doi and client is not None else None
     title = options.title or (record.title if record and record.title else None) or title_from(info)
     if doi is None and not options.title and title and title == info.largest_font_line:
         print(
@@ -166,9 +198,42 @@ def render(decisions: list[Decision], dry_run: bool) -> str:
     return f"{table}\n\n{headline}; {summary}"
 
 
+def render_backfill(rows: list[BackfillRow], apply: bool) -> str:
+    """Return a table of what the backfill did, or would do."""
+    table = tabulate(
+        [
+            (r.name, r.doi, r.action.value, " ".join(f"{k}={v}" for k, v in r.fields.items()), r.reason)
+            for r in rows
+        ],
+        headers=["object", "doi", "action", "fields", "reason"],
+    )
+    headline = "done" if apply else "DRY RUN: nothing written; rerun with --apply"
+    counts = {a.value: sum(1 for r in rows if r.action is a) for a in BackfillAction}
+    summary = ", ".join(f"{k}: {v}" for k, v in counts.items() if v) or "every object is complete"
+    return f"{table}\n\n{headline}; {summary}"
+
+
+def run_backfill(options: Options, store: MetadataStore, lookup: Callable[[str], Record | None]) -> int:
+    """Fill in missing author and year; report only unless ``--apply``."""
+    try:
+        manual = load_manual(Path(options.manual)) if options.manual else {}
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_ATTENTION
+    rows = backfill(store, lookup, apply=options.apply, fix_titles=options.titles, manual=manual)
+    print(render_backfill(rows, options.apply))
+    return EXIT_ATTENTION if any(r.action is BackfillAction.FAILED for r in rows) else EXIT_OK
+
+
 def run(argv: Sequence[str], store: ObjectStore | None = None) -> int:
     """Entry point; ``store`` is injected by tests."""
     options = parse_args(argv)
+    if options.command == "backfill":
+        import google.cloud.storage as storage
+
+        client = new_client()
+        gcs = GcsMetadataStore(storage.Client(project=options.project), options.bucket)
+        return run_backfill(options, gcs, lambda doi: lookup_record(doi, client))
     store = store or gcs_store(options.project, options.bucket)
     with tempfile.TemporaryDirectory() as tmp:
         pdfs = collect_pdfs(options, Path(tmp))

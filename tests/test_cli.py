@@ -94,3 +94,117 @@ def test_failed_upload_is_reported_and_the_run_continues(
     assert code == 1
     assert "10.1000_one.pdf" in names and "some-heading-text.pdf" in names
     assert "upload failed" in capsys.readouterr().out
+
+
+def test_describe_takes_author_and_year_from_datacite_when_crossref_does_not_know_the_doi(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    pdf = tmp_path / "thesis.pdf"
+    write_pdf(pdf, "10.3929/ethz-b-000697688")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "doi.org":
+            return httpx.Response(302)
+        if request.url.host == "api.crossref.org":
+            return httpx.Response(404)
+        creators = [{"nameType": "Personal", "familyName": "Ezzat"}]
+        attributes = {
+            "titles": [{"title": "Plasma-Pulse Geo-Drilling"}],
+            "publicationYear": 2024,
+            "creators": creators,
+        }
+        return httpx.Response(200, json={"data": {"attributes": attributes}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    paper, record = cli.describe(pdf, cli.parse_args(["upload", str(pdf)]), client)
+    assert record is not None
+    assert (record.first_author, record.year) == ("Ezzat", 2024)
+    assert paper.title == "Plasma-Pulse Geo-Drilling"
+
+
+def test_backfill_parses_without_sources_and_is_a_dry_run_by_default() -> None:
+    options = cli.parse_args(["backfill"])
+    assert (options.command, options.sources, options.apply) == ("backfill", [], False)
+    assert cli.parse_args(["backfill", "--apply"]).apply is True
+
+
+def test_run_backfill_reports_by_default_and_patches_with_apply(capsys: pytest.CaptureFixture[str]) -> None:
+    from uploader.backfill import StoredObject
+    from uploader.crossref import Record
+
+    class Store:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict[str, str], int]] = []
+
+        def list_objects(self) -> list[StoredObject]:
+            return [StoredObject("10.3929_x.pdf", 1, {"doi": "10.3929/x"})]
+
+        def patch(self, name: str, fields: Mapping[str, str], metageneration: int) -> None:
+            self.patches.append((name, dict(fields), metageneration))
+
+    def lookup(_doi: str) -> Record:
+        return Record(title="T", year=2024, first_author="Ezzat")
+
+    store = Store()
+    assert cli.run_backfill(cli.parse_args(["backfill"]), store, lookup) == 0
+    out = capsys.readouterr().out
+    assert store.patches == []
+    assert "DRY RUN" in out and "first_author=Ezzat" in out and "would patch: 1" in out
+
+    assert cli.run_backfill(cli.parse_args(["backfill", "--apply"]), store, lookup) == 0
+    assert store.patches == [("10.3929_x.pdf", {"first_author": "Ezzat", "year": "2024"}, 1)]
+    assert "patched: 1" in capsys.readouterr().out
+
+
+def test_backfill_parses_titles_and_manual_flags() -> None:
+    options = cli.parse_args(["backfill", "--titles", "--manual", "docs/no-doi-metadata.csv"])
+    assert (options.titles, options.manual) == (True, "docs/no-doi-metadata.csv")
+    plain = cli.parse_args(["backfill"])
+    assert (plain.titles, plain.manual) == (False, None)
+
+
+def test_run_backfill_applies_the_manual_file_and_fixes_titles(tmp_path: Path) -> None:
+    from uploader.backfill import StoredObject
+    from uploader.crossref import Record
+
+    manual = tmp_path / "manual.csv"
+    manual.write_text(
+        "object,first_author,year,evidence\nhydro.pdf,Vogler,2016,first page\n", encoding="utf-8"
+    )
+
+    class Store:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict[str, str], int]] = []
+
+        def list_objects(self) -> list[StoredObject]:
+            complete = {"doi": "10.3929/r", "first_author": "Rossi", "year": "2020", "title": "Paper Title"}
+            return [StoredObject("hydro.pdf", 1, {"title": "Hydro"}), StoredObject("r.pdf", 4, complete)]
+
+        def patch(self, name: str, fields: Mapping[str, str], metageneration: int) -> None:
+            self.patches.append((name, dict(fields), metageneration))
+
+    def lookup(_doi: str) -> Record:
+        return Record(title="Advanced drilling", year=2020, first_author="Rossi")
+
+    store = Store()
+    options = cli.parse_args(["backfill", "--apply", "--titles", "--manual", str(manual)])
+    assert cli.run_backfill(options, store, lookup) == 0
+    assert store.patches == [
+        ("hydro.pdf", {"first_author": "Vogler", "year": "2016"}, 1),
+        ("r.pdf", {"title": "Advanced drilling"}, 4),
+    ]
+
+
+def test_run_backfill_stops_on_a_bad_manual_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    bad = tmp_path / "bad.csv"
+    bad.write_text("object,first_author,year\nhydro.pdf,Vogler,16\n", encoding="utf-8")
+
+    class Untouched:
+        def list_objects(self) -> list[object]:
+            raise AssertionError("the bucket must not be read when the manual file is invalid")
+
+    options = cli.parse_args(["backfill", "--apply", "--manual", str(bad)])
+    assert cli.run_backfill(options, Untouched(), lambda _doi: None) == 1  # type: ignore[arg-type]
+    assert "year must be four digits" in capsys.readouterr().err
