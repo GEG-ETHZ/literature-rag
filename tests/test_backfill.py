@@ -141,3 +141,27 @@ def test_gcs_store_patches_only_the_given_keys_guarded_by_metageneration() -> No
 def test_gcs_store_rejects_an_empty_patch() -> None:
     with pytest.raises(ValueError, match="empty"):
         GcsMetadataStore(client=MagicMock(), bucket_name="bkt").patch("a.pdf", {}, metageneration=1)
+
+
+def test_filename_year_reads_the_leading_year_of_the_original_filename() -> None:
+    from uploader.backfill import filename_year
+
+    assert filename_year({"original_filename": "2018_krietsch_stress-measurements.pdf"}) == "2018"
+    assert filename_year({"original_filename": "Water Resources Research - 2020 - Lima.pdf"}) is None
+    assert filename_year({}) is None
+
+
+def test_filename_year_wins_over_the_registry_year_and_the_conflict_is_reported() -> None:
+    metadata = {"doi": "10.3929/k", "original_filename": "2018_krietsch_stress.pdf"}
+    store = FakeMetadataStore([stored("10.3929_k.pdf", metadata)])
+    krietsch = Record(title="Stress", year=2019, first_author="Krietsch")
+    rows = backfill(store, lookup_from({"10.3929/k": krietsch}), apply=False)  # type: ignore[arg-type]
+    assert rows[0].fields == {"first_author": "Krietsch", "year": "2018"}
+    assert rows[0].reason == "year from filename; registry says 2019"
+
+
+def test_matching_filename_year_is_not_reported_as_a_conflict() -> None:
+    metadata = {"doi": "10.3929/e", "original_filename": "2024_ezzat_thesis.pdf"}
+    store = FakeMetadataStore([stored("10.3929_e.pdf", metadata)])
+    rows = backfill(store, lookup_from({"10.3929/e": EZZAT}), apply=False)  # type: ignore[arg-type]
+    assert (rows[0].fields["year"], rows[0].reason) == ("2024", "")

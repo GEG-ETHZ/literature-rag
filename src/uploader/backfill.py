@@ -5,10 +5,15 @@ Only the object's custom metadata changes: the PDF stays as it is, so the ingest
 time, so a patched object is cited with author and year from the next answer on. Existing values are
 never overwritten, and every write is guarded by the metageneration that was read, so an object changed
 in the meantime fails instead of being overwritten.
+
+The year in a migrated file's name (``2018_krietsch_...pdf``) comes from the GEG publication list and
+wins over the registry: DataCite gives the Research Collection availability year or the arXiv preprint
+year, which can be one or two years off the published paper's year.
 """
 
+import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Protocol
 
@@ -17,6 +22,7 @@ import google.cloud.storage as storage
 from uploader.crossref import Record
 
 BACKFILL_KEYS = ("first_author", "year")
+FILENAME_YEAR = re.compile(r"^(\d{4})_")
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,23 @@ def patch_for(metadata: Mapping[str, str], record: Record) -> dict[str, str]:
     return {key: str(values[key]) for key in missing_fields(metadata) if values[key]}
 
 
+def filename_year(metadata: Mapping[str, str]) -> str | None:
+    """Return the leading ``YYYY_`` year of the original file name (October 2026 migration names)."""
+    match = FILENAME_YEAR.match(metadata.get("original_filename", ""))
+    return match.group(1) if match else None
+
+
+def with_filename_year(metadata: Mapping[str, str], record: Record) -> tuple[Record, str]:
+    """Return ``record`` with the file name's year, if any, and a note when the registry disagrees."""
+    year = filename_year(metadata)
+    if year is None:
+        return record, ""
+    note = (
+        f"year from filename; registry says {record.year}" if record.year and str(record.year) != year else ""
+    )
+    return replace(record, year=int(year)), note
+
+
 def backfill_one(
     obj: StoredObject, lookup: Callable[[str], Record | None], store: MetadataStore, apply: bool
 ) -> BackfillRow:
@@ -83,16 +106,17 @@ def backfill_one(
     record = lookup(doi)
     if record is None:
         return BackfillRow(obj.name, doi, BackfillAction.NOT_FOUND, reason="neither Crossref nor DataCite")
+    record, note = with_filename_year(obj.metadata, record)
     fields = patch_for(obj.metadata, record)
     if not fields:
         return BackfillRow(obj.name, doi, BackfillAction.NOTHING_TO_ADD, reason="registry has no author/year")
     if not apply:
-        return BackfillRow(obj.name, doi, BackfillAction.WOULD_PATCH, fields)
+        return BackfillRow(obj.name, doi, BackfillAction.WOULD_PATCH, fields, note)
     try:
         store.patch(obj.name, fields, obj.metageneration)
     except Exception as error:  # noqa: BLE001  any API error: report this object, keep going
         return BackfillRow(obj.name, doi, BackfillAction.FAILED, fields, f"{type(error).__name__}: {error}")
-    return BackfillRow(obj.name, doi, BackfillAction.PATCHED, fields)
+    return BackfillRow(obj.name, doi, BackfillAction.PATCHED, fields, note)
 
 
 def backfill(store: MetadataStore, lookup: Callable[[str], Record | None], apply: bool) -> list[BackfillRow]:
